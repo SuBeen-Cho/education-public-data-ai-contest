@@ -38,12 +38,10 @@
 | [KESS](https://kess.kedi.re.kr/) | 학생수, 교원수, 학급수, 진학률 |
 | [NEIS](https://open.neis.go.kr/) | 학교 기본정보 (설립유형, 학교유형) |
 
-## 팀 구성
+## Contributors
 
-| 역할 | GitHub |
-|------|--------|
-| 분석 · 기획 | [@SuBeen-Cho](https://github.com/SuBeen-Cho) |
-| 개발 | [@jaedol2023-oss](https://github.com/jaedol2023-oss) |
+<a href="https://github.com/SuBeen-Cho"><img src="https://github.com/SuBeen-Cho.png" width="60" style="border-radius:50%"/></a>
+<a href="https://github.com/jaedol2023-oss"><img src="https://github.com/jaedol2023-oss.png" width="60" style="border-radius:50%"/></a>
 
 ## 라이선스
 
