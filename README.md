@@ -1,35 +1,46 @@
-# 교육 공공데이터 AI 활용대회
+# EduData Watch 프로토타입
 
-**정보공시 자동 검증 · 이상치 탐지 시스템**
+정보공시 자동 검증 · 이상치 탐지 시스템
 
-제8회 교육 공공데이터 AI 활용대회 출품작 (일반부문 — AI 활용 아이디어 기획)
+## 실행 방법
 
-## 프로젝트 소개
+```bash
+# 1. 패키지 설치
+pip install anthropic fastapi uvicorn
 
-교육 정보공시 데이터의 항목 간 일관성, 시계열 맥락, 유사학교 비교 등을 자동 검증하여 검토가 필요한 항목을 탐지하는 시스템입니다.
+# 2. API 키 설정 (선택 — 없으면 LLM 기능 비활성화 상태로 동작)
+export ANTHROPIC_API_KEY="your-key-here"
 
-기존 공시 검증 체계가 다루지 못하는 **맥락 기반 검증 영역**을 보완합니다.
+# 3. 서버 실행
+cd prototype
+python app.py
+```
 
-## 기술 스택
+브라우저에서 http://localhost:8000 접속.
 
-- **룰 엔진**: Python (pandas, openpyxl)
-- **맥락 추론**: LLM (프롬프트 기반 인터페이스)
-- **데이터**: 학교알리미, KESS, NEIS 교육 공공데이터
+## 파일 구조
 
-## 활용 데이터
+```
+prototype/
+├── app.py                  # FastAPI 메인 서버
+├── data_loader.py          # xlsx → 통합 DataFrame
+├── rule_engine.py          # v3 25개 룰 구현
+├── priority_scorer.py      # 우선순위 점수 산출
+├── safe_executor.py        # pandas 코드 안전 실행
+├── static/
+│   ├── index.html          # 메인 UI
+│   ├── style.css           # 스타일
+│   ├── app.js              # 프론트엔드 로직
+│   └── pipeline-architecture.html  # E2E 파이프라인 다이어그램
+└── README.md
+```
 
-| 출처 | 설명 |
-|------|------|
-| [학교알리미](https://www.schoolinfo.go.kr/) | 학교현황, 교원현황, 급식비, 재정, 학교폭력 |
-| [KESS](https://kess.kedi.re.kr/) | 학생수, 교원수, 학급수, 진학률 |
-| [NEIS](https://open.neis.go.kr/) | 학교 기본정보 (설립유형, 학교유형) |
+## API
 
-## Contributors
-
-<a href="https://github.com/SuBeen-Cho"><img src="https://github.com/SuBeen-Cho.png" width="60" style="border-radius:50%"/></a>
-<a href="https://github.com/jaedol2023-oss"><img src="https://github.com/jaedol2023-oss.png" width="60" style="border-radius:50%"/></a>
-
-## 라이선스
-
-본 프로젝트는 교육 공공데이터 AI 활용대회 출품작입니다.
-활용 데이터의 출처와 라이선스는 각 기관의 공공데이터 이용 정책을 따릅니다.
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/api/dashboard` | 오늘의 3건 + 분포 |
+| GET | `/api/schools` | 학교 목록 |
+| GET | `/api/school/{code}` | 학교 상세 |
+| POST | `/api/chat` | 대화형 탐색 |
+| GET | `/api/stats` | 통계 요약 |

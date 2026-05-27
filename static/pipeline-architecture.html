@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduData Watch — E2E 파이프라인 아키텍처</title>
+  <style>
+    /* ===== FONT ===== */
+    @font-face { font-family:'Paperlogy'; src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-4Regular.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+    @font-face { font-family:'Paperlogy'; src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-6SemiBold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+    @font-face { font-family:'Paperlogy'; src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-7Bold.woff2') format('woff2'); font-weight:700; font-style:normal; font-display:swap; }
+    @font-face { font-family:'Paperlogy'; src:url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-3Light.woff2') format('woff2'); font-weight:300; font-style:normal; font-display:swap; }
+
+    /* ===== TOKENS ===== */
+    :root {
+      --color-bg: #FFFFFF;
+      --color-bg-subtle: #F6F8FA;
+      --color-bg-card: #F9FAFB;
+      --color-border: #DDE3E9;
+      --color-border-light: #E9EEF2;
+      --color-text: #1A1A1A;
+      --color-text-secondary: #6B6B6B;
+      --color-text-tertiary: #9B9B9B;
+      --color-accent: #3B6BCC;
+      --color-accent-light: #EBF0FA;
+      --color-accent-hover: #2F5AB3;
+      --color-accent-text: #2A4E99;
+      --color-highlight: rgba(59,107,204,0.13);
+      --color-info: #5B8BA0;
+      --color-danger: #C45C5C;
+      --color-success: #3B9B6B;
+      --color-warning: #D4A843;
+      --color-layer1: #E8F5E9;
+      --color-layer1-border: #66BB6A;
+      --color-layer2: #E3F2FD;
+      --color-layer2-border: #42A5F5;
+      --color-layer3: #F3E5F5;
+      --color-layer3-border: #AB47BC;
+      --color-layer4: #FFF3E0;
+      --color-layer4-border: #FFA726;
+      --font-primary: 'Paperlogy','Pretendard',-apple-system,sans-serif;
+      --font-mono: 'JetBrains Mono','D2Coding','Consolas',monospace;
+      --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+      --space-5:24px; --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px;
+    }
+
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    html { font-size:16px; scroll-behavior:smooth; -webkit-font-smoothing:antialiased; }
+    body { font-family:var(--font-primary); font-weight:400; color:var(--color-text); background:var(--color-bg); line-height:1.7; }
+
+    /* ===== LAYOUT ===== */
+    .page { max-width:1100px; margin:0 auto; padding:var(--space-7) var(--space-5); }
+
+    /* ===== HEADER ===== */
+    .doc-header { text-align:center; margin-bottom:var(--space-8); padding-bottom:var(--space-7); border-bottom:1px solid var(--color-border-light); }
+    .doc-header h1 { font-size:32px; font-weight:700; line-height:1.3; letter-spacing:-0.02em; margin-bottom:var(--space-3); }
+    .doc-header .subtitle { font-size:18px; font-weight:300; color:var(--color-text-secondary); margin-bottom:var(--space-4); }
+    .doc-header .meta { font-size:13px; color:var(--color-text-tertiary); }
+    .doc-header .meta span { display:inline-block; margin:0 var(--space-3); }
+
+    /* ===== SECTION TITLE ===== */
+    .section-title { font-size:22px; font-weight:700; margin-bottom:var(--space-5); padding-bottom:var(--space-3); border-bottom:2px solid var(--color-accent); display:inline-block; }
+    .section-title .num { color:var(--color-accent); margin-right:var(--space-2); }
+    .section-desc { font-size:15px; color:var(--color-text-secondary); margin-bottom:var(--space-6); max-width:680px; }
+    .section { margin-bottom:var(--space-9); }
+
+    /* ===== ARCHITECTURE DIAGRAM ===== */
+    .arch-diagram { position:relative; }
+
+    /* --- Layer Row --- */
+    .layer-row {
+      display:grid;
+      grid-template-columns: 160px 1fr;
+      gap:var(--space-5);
+      margin-bottom:var(--space-5);
+      align-items:stretch;
+    }
+
+    .layer-label {
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      padding:var(--space-4);
+      border-radius:10px;
+      text-align:center;
+      position:relative;
+    }
+    .layer-label .layer-num { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; }
+    .layer-label .layer-name { font-size:14px; font-weight:700; line-height:1.3; }
+    .layer-label .layer-tech { font-size:11px; font-weight:400; margin-top:4px; opacity:0.7; }
+
+    .layer-label.l-data { background:var(--color-layer1); border:2px solid var(--color-layer1-border); color:#2E7D32; }
+    .layer-label.l-rule { background:var(--color-layer2); border:2px solid var(--color-layer2-border); color:#1565C0; }
+    .layer-label.l-llm  { background:var(--color-layer3); border:2px solid var(--color-layer3-border); color:#7B1FA2; }
+    .layer-label.l-ui   { background:var(--color-layer4); border:2px solid var(--color-layer4-border); color:#E65100; }
+
+    .layer-content {
+      background:var(--color-bg-card);
+      border:1px solid var(--color-border-light);
+      border-radius:10px;
+      padding:var(--space-5);
+      display:flex;
+      gap:var(--space-4);
+      flex-wrap:wrap;
+      align-items:stretch;
+    }
+
+    /* --- Module Box --- */
+    .module {
+      flex:1;
+      min-width:180px;
+      background:var(--color-bg);
+      border:1px solid var(--color-border);
+      border-radius:8px;
+      padding:var(--space-4);
+      position:relative;
+      transition:box-shadow 0.2s, border-color 0.2s;
+    }
+    .module:hover {
+      box-shadow:0 4px 16px rgba(0,0,0,0.06);
+      border-color:var(--color-accent);
+    }
+    .module .mod-icon {
+      width:36px; height:36px;
+      border-radius:8px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:18px;
+      margin-bottom:var(--space-3);
+    }
+    .module .mod-title { font-size:14px; font-weight:600; margin-bottom:var(--space-1); }
+    .module .mod-desc { font-size:12px; color:var(--color-text-secondary); line-height:1.5; }
+    .module .mod-file { font-size:11px; font-family:var(--font-mono); color:var(--color-text-tertiary); margin-top:var(--space-2); padding-top:var(--space-2); border-top:1px dashed var(--color-border-light); }
+    .module .mod-tag {
+      display:inline-block;
+      font-size:10px; font-weight:600;
+      padding:2px 8px;
+      border-radius:4px;
+      margin-top:var(--space-2);
+    }
+    .tag-input { background:#E8F5E9; color:#2E7D32; }
+    .tag-process { background:#E3F2FD; color:#1565C0; }
+    .tag-output { background:#F3E5F5; color:#7B1FA2; }
+    .tag-api { background:#FFF3E0; color:#E65100; }
+
+    /* --- Flow Arrow --- */
+    .flow-connector {
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      margin: 4px 0;
+      position:relative;
+      z-index:10;
+      padding-left:160px;
+    }
+    .flow-arrow {
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:2px;
+    }
+    .flow-arrow .arrow-line {
+      width:2px; height:20px;
+      background:var(--color-border);
+    }
+    .flow-arrow .arrow-head {
+      width:0; height:0;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:8px solid var(--color-accent);
+    }
+    .flow-arrow .arrow-label {
+      font-size:11px;
+      color:var(--color-text-tertiary);
+      font-weight:400;
+      margin-top:4px;
+      text-align:center;
+      max-width:400px;
+      line-height:1.4;
+    }
+
+    /* ===== DETAIL FLOW (E2E) ===== */
+    .e2e-flow {
+      display:flex;
+      flex-direction:column;
+      gap:0;
+    }
+    .e2e-step {
+      display:grid;
+      grid-template-columns: 48px 1fr;
+      gap:var(--space-4);
+      position:relative;
+    }
+    .e2e-step:not(:last-child) .e2e-timeline::after {
+      content:'';
+      position:absolute;
+      left:50%; top:48px; bottom:-1px;
+      width:2px;
+      background:linear-gradient(to bottom, var(--color-accent), var(--color-border-light));
+      transform:translateX(-50%);
+    }
+    .e2e-timeline {
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      position:relative;
+    }
+    .e2e-num {
+      width:40px; height:40px;
+      border-radius:50%;
+      background:var(--color-accent);
+      color:white;
+      font-size:16px; font-weight:700;
+      display:flex; align-items:center; justify-content:center;
+      position:relative;
+      z-index:5;
+      box-shadow:0 2px 8px rgba(59,107,204,0.25);
+    }
+    .e2e-card {
+      background:var(--color-bg-card);
+      border:1px solid var(--color-border-light);
+      border-radius:10px;
+      padding:var(--space-5);
+      margin-bottom:var(--space-5);
+      transition:box-shadow 0.2s;
+    }
+    .e2e-card:hover { box-shadow:0 4px 20px rgba(0,0,0,0.06); }
+    .e2e-card h4 { font-size:16px; font-weight:600; margin-bottom:var(--space-2); }
+    .e2e-card .e2e-sub { font-size:13px; color:var(--color-text-secondary); margin-bottom:var(--space-3); }
+    .e2e-card .e2e-detail { font-size:13px; line-height:1.7; }
+    .e2e-card code {
+      font-family:var(--font-mono);
+      font-size:12px;
+      background:var(--color-bg-subtle);
+      padding:2px 6px;
+      border-radius:4px;
+      border:1px solid var(--color-border-light);
+    }
+    .e2e-card .code-block {
+      background:var(--color-bg-subtle);
+      border:1px solid var(--color-border-light);
+      border-radius:6px;
+      padding:var(--space-4);
+      font-family:var(--font-mono);
+      font-size:12px;
+      line-height:1.6;
+      overflow-x:auto;
+      margin-top:var(--space-3);
+      white-space:pre;
+    }
+    .e2e-card .io-row {
+      display:flex;
+      gap:var(--space-3);
+      margin-top:var(--space-3);
+      flex-wrap:wrap;
+    }
+    .io-box {
+      flex:1;
+      min-width:200px;
+      padding:var(--space-3) var(--space-4);
+      border-radius:6px;
+      font-size:12px;
+      line-height:1.6;
+    }
+    .io-box.input { background:#E8F5E9; border:1px solid #A5D6A7; }
+    .io-box.output { background:#E3F2FD; border:1px solid #90CAF9; }
+    .io-box.llm-io { background:#F3E5F5; border:1px solid #CE93D8; }
+    .io-box .io-label { font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; display:block; }
+
+    /* ===== LAYER4 DETAIL ===== */
+    .chat-flow {
+      display:flex;
+      flex-direction:column;
+      gap:var(--space-4);
+      margin-top:var(--space-5);
+    }
+    .chat-msg {
+      max-width:85%;
+      padding:var(--space-4);
+      border-radius:12px;
+      font-size:13px;
+      line-height:1.7;
+    }
+    .chat-msg.user {
+      align-self:flex-end;
+      background:var(--color-accent);
+      color:white;
+      border-bottom-right-radius:4px;
+    }
+    .chat-msg.system {
+      align-self:flex-start;
+      background:var(--color-bg-card);
+      border:1px solid var(--color-border-light);
+      border-bottom-left-radius:4px;
+    }
+    .chat-msg .msg-label { font-size:11px; font-weight:600; opacity:0.7; margin-bottom:4px; display:block; }
+
+    /* ===== COMPARISON TABLE ===== */
+    .comp-table { width:100%; border-collapse:collapse; margin-top:var(--space-5); font-size:13px; }
+    .comp-table th { background:var(--color-bg-subtle); font-weight:600; text-align:left; padding:var(--space-3) var(--space-4); border-bottom:2px solid var(--color-border); }
+    .comp-table td { padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--color-border-light); vertical-align:top; }
+    .comp-table tr:hover td { background:var(--color-bg-card); }
+    .comp-table .check { color:var(--color-success); font-weight:600; }
+    .comp-table .cross { color:var(--color-danger); }
+
+    /* ===== CALLOUT ===== */
+    .callout {
+      padding:var(--space-5);
+      border-radius:8px;
+      margin:var(--space-5) 0;
+      font-size:14px;
+      line-height:1.7;
+    }
+    .callout.insight { background:var(--color-accent-light); border-left:3px solid var(--color-accent); }
+    .callout.warning { background:#FFF8E1; border-left:3px solid var(--color-warning); }
+    .callout .callout-label { font-size:12px; font-weight:600; color:var(--color-accent-text); margin-bottom:var(--space-2); display:block; }
+
+    /* ===== SECURITY ===== */
+    .security-grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+      gap:var(--space-4);
+      margin-top:var(--space-5);
+    }
+    .sec-card {
+      background:var(--color-bg-card);
+      border:1px solid var(--color-border-light);
+      border-radius:8px;
+      padding:var(--space-4);
+    }
+    .sec-card .sec-icon { font-size:24px; margin-bottom:var(--space-2); }
+    .sec-card h5 { font-size:13px; font-weight:600; margin-bottom:var(--space-1); }
+    .sec-card p { font-size:12px; color:var(--color-text-secondary); line-height:1.5; }
+
+    /* ===== REFERENCE ===== */
+    .ref-section { margin-top:var(--space-8); padding-top:var(--space-6); border-top:1px solid var(--color-border-light); }
+    .ref-section h3 { font-size:16px; font-weight:600; margin-bottom:var(--space-4); }
+    .ref-list { list-style:none; }
+    .ref-list li {
+      font-size:12px;
+      color:var(--color-text-secondary);
+      padding:var(--space-2) 0;
+      border-bottom:1px solid var(--color-border-light);
+      line-height:1.5;
+    }
+    .ref-list li strong { color:var(--color-text); font-weight:600; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width:768px) {
+      .layer-row { grid-template-columns:1fr; }
+      .flow-connector { padding-left:0; }
+      .layer-content { flex-direction:column; }
+      .e2e-step { grid-template-columns:36px 1fr; }
+    }
+
+    @media print {
+      body { font-size:11pt; }
+      .module:hover { box-shadow:none; border-color:var(--color-border); }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="doc-header">
+    <h1>EduData Watch</h1>
+    <p class="subtitle">E2E 파이프라인 아키텍처</p>
+    <p class="meta">
+      <span>정보공시 자동 검증 · 이상치 탐지 시스템</span>
+      <span>|</span>
+      <span>v1.0 — 2026.05.26</span>
+    </p>
+  </header>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 1: 시스템 개요 (4-Layer Architecture)                 -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">01</span>시스템 아키텍처</h2>
+    <p class="section-desc">
+      4개의 레이어가 순차적으로 연결된다.
+      레이어 1~2는 LLM 없이 pandas만으로 동작하고,
+      레이어 3~4에서 LLM이 맥락 추론과 자연어 인터페이스를 담당한다.
+    </p>
+
+    <div class="arch-diagram">
+
+      <!-- Layer 1: Data -->
+      <div class="layer-row">
+        <div class="layer-label l-data">
+          <span class="layer-num">Layer 1</span>
+          <span class="layer-name">데이터 수집·통합</span>
+          <span class="layer-tech">pandas + openpyxl</span>
+        </div>
+        <div class="layer-content">
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer1); color:#2E7D32;">A</div>
+            <div class="mod-title">학교알리미</div>
+            <div class="mod-desc">42교 x 3년, 6개 시트(330+ 컬럼). 학생현황·교원현황·학폭심의·재정·급식·시설</div>
+            <div class="mod-file">*_학교알리미_후처리.xlsx</div>
+            <span class="mod-tag tag-input">INPUT</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer1); color:#2E7D32;">K</div>
+            <div class="mod-title">KESS</div>
+            <div class="mod-desc">42교 x 3년. 학생수·학급수·교원수·진학률. 교차검증 소스</div>
+            <div class="mod-file">*_KESS_후처리.xlsx</div>
+            <span class="mod-tag tag-input">INPUT</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer1); color:#2E7D32;">N</div>
+            <div class="mod-title">NEIS</div>
+            <div class="mod-desc">학교코드·메타데이터. 3개 소스를 연결하는 척추</div>
+            <div class="mod-file">NEIS_후처리.xlsx</div>
+            <span class="mod-tag tag-input">INPUT</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer2); color:#1565C0;">T</div>
+            <div class="mod-title">전처리 엔진</div>
+            <div class="mod-desc">3개 소스 병합 → 파생값 계산 (학급당학생수, 변동률, 동료군 통계)</div>
+            <div class="mod-file">data_loader.py</div>
+            <span class="mod-tag tag-process">PROCESS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flow-connector">
+        <div class="flow-arrow">
+          <div class="arrow-line"></div>
+          <div class="arrow-head"></div>
+          <span class="arrow-label">통합 DataFrame (42교 x 3년 x 330+ 컬럼)</span>
+        </div>
+      </div>
+
+      <!-- Layer 2: Rule Engine -->
+      <div class="layer-row">
+        <div class="layer-label l-rule">
+          <span class="layer-num">Layer 2</span>
+          <span class="layer-name">규칙 기반 탐지</span>
+          <span class="layer-tech">Python 룰 엔진</span>
+        </div>
+        <div class="layer-content">
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer2); color:#1565C0;">R</div>
+            <div class="mod-title">룰 엔진 (v3)</div>
+            <div class="mod-desc">25개 룰, 10개 카테고리. 각 룰이 Python 함수로 구현되어 DataFrame을 입력받고 탐지 결과를 반환</div>
+            <div class="mod-file">rule_engine.py</div>
+            <span class="mod-tag tag-process">PROCESS</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer2); color:#1565C0;">P</div>
+            <div class="mod-title">우선순위 채점</div>
+            <div class="mod-desc">S = 3·max(★) + 2·Σ(카테고리 가중치) + 5·R<br>가중치: C3(안전)=3, B1/C1/C2=2, D2/E2/C5=1<br>학교별 점수 → "오늘의 3건" 자동 선정</div>
+            <div class="mod-file">priority_scorer.py</div>
+            <span class="mod-tag tag-process">PROCESS</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer2); color:#1565C0;">E</div>
+            <div class="mod-title">정상 예외 필터</div>
+            <div class="mod-desc">16개 공통 정상 예외 자동 적용. 신설·폐교, 기준일 차이, 단위 오류 등 false positive 제거</div>
+            <div class="mod-file">rule_engine.py 내장</div>
+            <span class="mod-tag tag-process">FILTER</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flow-connector">
+        <div class="flow-arrow">
+          <div class="arrow-line"></div>
+          <div class="arrow-head"></div>
+          <span class="arrow-label">탐지 결과 177건 + 우선순위 점수 (42교)</span>
+        </div>
+      </div>
+
+      <!-- Layer 3: LLM Interpretation -->
+      <div class="layer-row">
+        <div class="layer-label l-llm">
+          <span class="layer-num">Layer 3</span>
+          <span class="layer-name">LLM 맥락 해석</span>
+          <span class="layer-tech">Claude API</span>
+        </div>
+        <div class="layer-content">
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer3); color:#7B1FA2;">S</div>
+            <div class="mod-title">자연어 설명 생성</div>
+            <div class="mod-desc">탐지 결과를 담당자 눈높이 문장으로 변환. "학생이 줄었는데 학급이 늘었습니다. 같은 구 평균은..."</div>
+            <div class="mod-file">llm_interface.py</div>
+            <span class="mod-tag tag-output">LLM</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer3); color:#7B1FA2;">H</div>
+            <div class="mod-title">정상 사유 추론</div>
+            <div class="mod-desc">각 탐지 건에 대해 가능한 정상 사유 3가지를 맥락적으로 생성. "학과 개편 가능성", "기준일 차이" 등</div>
+            <div class="mod-file">llm_interface.py</div>
+            <span class="mod-tag tag-output">LLM</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer3); color:#7B1FA2;">Q</div>
+            <div class="mod-title">확인 질문 생성</div>
+            <div class="mod-desc">담당자가 다음에 확인해야 할 것을 안내. "학급 편성 변경 공문이 있는지 확인 권장"</div>
+            <div class="mod-file">llm_interface.py</div>
+            <span class="mod-tag tag-output">LLM</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flow-connector">
+        <div class="flow-arrow">
+          <div class="arrow-line"></div>
+          <div class="arrow-head"></div>
+          <span class="arrow-label">구조화된 보고서 (탐지 + 해석 + 확인 사항)</span>
+        </div>
+      </div>
+
+      <!-- Layer 4: Interactive Exploration -->
+      <div class="layer-row">
+        <div class="layer-label l-ui">
+          <span class="layer-num">Layer 4</span>
+          <span class="layer-name">대화형 탐색</span>
+          <span class="layer-tech">Text-to-pandas + LLM</span>
+        </div>
+        <div class="layer-content">
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer4); color:#E65100;">C</div>
+            <div class="mod-title">자연어 → 분석 계획</div>
+            <div class="mod-desc">사용자 질문을 파싱하여 어떤 컬럼을, 어떤 기준으로, 어떻게 분석할지 계획 수립</div>
+            <div class="mod-file">chat_explorer.py</div>
+            <span class="mod-tag tag-api">CHAT</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer4); color:#E65100;">X</div>
+            <div class="mod-title">안전 실행 엔진</div>
+            <div class="mod-desc">LLM이 생성한 pandas 코드를 화이트리스트 기반 샌드박스에서 실행. 읽기 전용, 금지 패턴 차단</div>
+            <div class="mod-file">safe_executor.py</div>
+            <span class="mod-tag tag-process">SANDBOX</span>
+          </div>
+          <div class="module">
+            <div class="mod-icon" style="background:var(--color-layer4); color:#E65100;">G</div>
+            <div class="mod-title">후속 질문 제안</div>
+            <div class="mod-desc">분석 결과에 기반하여 "급식비도 추가해서 볼래", "강남구만 따로 볼래" 등 탐색 방향 제안</div>
+            <div class="mod-file">chat_explorer.py</div>
+            <span class="mod-tag tag-api">GUIDED</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /arch-diagram -->
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 2: E2E 파이프라인 상세 흐름                            -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">02</span>E2E 파이프라인 상세</h2>
+    <p class="section-desc">
+      사용자의 자연어 질문이 입력되어 최종 보고서가 출력되기까지의 전체 흐름.
+      각 단계에서 어떤 데이터가 입력되고 어떤 결과가 나오는지를 명시한다.
+    </p>
+
+    <div class="e2e-flow">
+
+      <!-- Step 1 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">1</div></div>
+        <div class="e2e-card">
+          <h4>데이터 로드 및 통합</h4>
+          <div class="e2e-sub">data_loader.py — 서버 시작 시 1회 실행</div>
+          <div class="e2e-detail">
+            <p>7개 xlsx 파일을 pandas DataFrame으로 로드하고, NEIS 학교코드를 키로 3개 소스를 병합한다.</p>
+            <div class="io-row">
+              <div class="io-box input">
+                <span class="io-label">Input</span>
+                학교알리미 3개 (2023~2025)<br>
+                KESS 3개 (2023~2025)<br>
+                NEIS 1개 (메타데이터)
+              </div>
+              <div class="io-box output">
+                <span class="io-label">Output</span>
+                통합 DataFrame<br>
+                42교 x 3년 = 126행<br>
+                핵심 컬럼 50+ (파생값 포함)
+              </div>
+            </div>
+            <div class="code-block">df_school = pd.read_excel("2025_학교알리미_후처리.xlsx", sheet_name="메인")
+df_kess = pd.read_excel("2025_KESS_후처리.xlsx")
+df_merged = df_school.merge(df_kess, on="학교코드", suffixes=("_알리미","_KESS"))
+# 파생값 계산
+df_merged["학급당학생수"] = df_merged["학생수"] / df_merged["학급수"]
+df_merged["전년대비_학생수_변동률"] = df_merged.groupby("학교코드")["학생수"].pct_change()</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">2</div></div>
+        <div class="e2e-card">
+          <h4>룰 엔진 실행</h4>
+          <div class="e2e-sub">rule_engine.py — 25개 룰 순차 적용</div>
+          <div class="e2e-detail">
+            <p>통합 DataFrame에 v3 룰셋 25개를 적용하여 검토 후보를 산출한다. 각 룰은 독립적인 Python 함수로 구현되며, 정상 예외 16가지가 자동으로 필터링된다.</p>
+            <div class="io-row">
+              <div class="io-box input">
+                <span class="io-label">Input</span>
+                통합 DataFrame (126행)<br>
+                룰셋 v3 (25개 룰, 16개 정상 예외)
+              </div>
+              <div class="io-box output">
+                <span class="io-label">Output</span>
+                탐지 결과 DataFrame<br>
+                177건 (★★★ 58건, ★★ 119건)<br>
+                컬럼: 학교코드, 룰ID, 별, 상세값
+              </div>
+            </div>
+            <div class="code-block">engine = RuleEngine(df_merged)
+detections = engine.run_all()
+# 결과: [{"school":"A고", "rule":"C1-1", "star":3, "detail":"학생-9.7% 학급+8.3%"}, ...]</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">3</div></div>
+        <div class="e2e-card">
+          <h4>우선순위 점수 산출</h4>
+          <div class="e2e-sub">priority_scorer.py — 학교 단위 점수 계산</div>
+          <div class="e2e-detail">
+            <p>4개 항을 조합하여 학교별 종합 점수를 산출하고, 상위 3건을 "오늘의 검토 후보"로 선정한다.</p>
+            <div class="code-block">S = 3 × max(★)              ← 최고 별 등급 (최대 9)
+  + 2 × Σ(카테고리 가중치)  ← C3=3, B1/C1/C2/F1=2, D2/E2/C5=1
+  + 5 × R                   ← 3년 반복 여부 (0 or 5)
+
+카테고리 가중치 (맥락적 심각도):
+  C3(학생 안전) = 3  ← 미조치 피해, 학생 보호 직결
+  B1/C1/C2/F1  = 2  ← 급변동, 항목 연동, 교차검증
+  D2/E2/C5     = 1  ← 통계적 참고, 미갱신 의심
+  + 3 × P             ← 실제 사례 패턴    (0 or 3)</div>
+            <div class="io-row">
+              <div class="io-box output">
+                <span class="io-label">Top 3 결과</span>
+                1위 A고 23점 (4개 카테고리)<br>
+                2위 B고 23점 (4개 카테고리)<br>
+                3위 C고 22점 (5개 카테고리)
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">4</div></div>
+        <div class="e2e-card">
+          <h4>LLM 자연어 해석</h4>
+          <div class="e2e-sub">llm_interface.py — Claude Sonnet 4.6 API</div>
+          <div class="e2e-detail">
+            <p>탐지 결과 + 동료군 비교 데이터 + 정상 예외 체크리스트를 LLM에 전달하여, 담당자가 읽을 수 있는 자연어 해석을 생성한다.</p>
+            <div class="io-row">
+              <div class="io-box input">
+                <span class="io-label">LLM Input</span>
+                탐지 결과 (룰ID, 실제값)<br>
+                동료군 통계 (평균, 중앙값, IQR)<br>
+                정상 예외 16개 체크리스트<br>
+                도메인 지식 (시스템 프롬프트)
+              </div>
+              <div class="io-box llm-io">
+                <span class="io-label">LLM Output</span>
+                1. 한 문장 요약<br>
+                2. 동료군 대비 분석<br>
+                3. 정상 사유 가능성 3가지<br>
+                4. 담당자 확인 권장 사항
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">5</div></div>
+        <div class="e2e-card">
+          <h4>대화형 탐색 (레이어 4)</h4>
+          <div class="e2e-sub">chat_explorer.py + safe_executor.py</div>
+          <div class="e2e-detail">
+            <p>담당자가 자연어로 추가 질문을 하면, LLM이 분석 계획을 세우고, pandas 코드를 생성하여 안전하게 실행하고, 결과를 보고서 형태로 반환한다.</p>
+
+            <div class="chat-flow">
+              <div class="chat-msg user">
+                <span class="msg-label">담당자</span>
+                학교 교원이랑 학생 수 비교했을 때 비이상적으로 늘어나는 거 있어?
+              </div>
+              <div class="chat-msg system">
+                <span class="msg-label">AI 분석 계획</span>
+                <strong>확인 컬럼:</strong> teacher_count, student_count, year<br>
+                <strong>적용 기준:</strong> 전년대비 변동률 계산, 방향 불일치 탐지 (C1-1 기준)<br>
+                <strong>비교군:</strong> 같은 구 동일 설립유형 학교 평균
+              </div>
+              <div class="chat-msg system">
+                <span class="msg-label">분석 결과</span>
+                <strong>4개교</strong>에서 학생수↔교원수 역방향 변동이 발견되었습니다.<br><br>
+                A고: 학생수 -9.7%, 교원수 +12.3% (차이 22.0%p)<br>
+                B고: 학생수 -5.2%, 교원수 +10.9% (차이 16.1%p)<br><br>
+                같은 구 평균: 학생 -3.1%, 교원 -2.4%<br><br>
+                <strong>[신뢰도: 높음]</strong> 정확한 컬럼 매칭, v3 C1-1 기준 활용
+              </div>
+              <div class="chat-msg user">
+                <span class="msg-label">담당자</span>
+                여기에 급식비도 추가해서 보고 싶어
+              </div>
+              <div class="chat-msg system">
+                <span class="msg-label">확장 분석</span>
+                기존 분석에 <strong>meal_cost</strong> 컬럼을 추가했습니다.<br><br>
+                A고: 급식비 -33.5% (학생 -9.7%인데 급식비 감소폭이 3.5배)<br>
+                → 학생↔교원 역방향 + 급식비 급감이 동시 발생<br>
+                → MC-2(급식 운영 변경 신호)와 유사한 패턴<br><br>
+                <strong>추가 확인 권장:</strong> 급식 운영 방식 변경 여부
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 6 -->
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">6</div></div>
+        <div class="e2e-card">
+          <h4>결과 시각화 및 보고서 출력</h4>
+          <div class="e2e-sub">HTML UI — 대시보드 + 상세 + 채팅</div>
+          <div class="e2e-detail">
+            <p>모든 결과가 3개 화면으로 시각화된다.</p>
+            <div class="io-row">
+              <div class="io-box" style="background:#FFF3E0; border:1px solid #FFB74D;">
+                <span class="io-label" style="color:#E65100;">화면 1: 대시보드</span>
+                "오늘의 3건" 카드<br>
+                42교 점수 분포 막대그래프<br>
+                전체 탐지 건수 요약
+              </div>
+              <div class="io-box" style="background:#FFF3E0; border:1px solid #FFB74D;">
+                <span class="io-label" style="color:#E65100;">화면 2: 학교 상세</span>
+                룰 적용 결과 리스트<br>
+                각 건별 LLM 해석<br>
+                동료군 비교 차트
+              </div>
+              <div class="io-box" style="background:#FFF3E0; border:1px solid #FFB74D;">
+                <span class="io-label" style="color:#E65100;">화면 3: 대화형 탐색</span>
+                채팅 인터페이스<br>
+                분석 보고서 카드<br>
+                후속 질문 제안 버튼
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /e2e-flow -->
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 3: 레이어 4 대화형 탐색 상세 흐름                      -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">03</span>레이어 4 상세: 대화형 탐색 내부 흐름</h2>
+    <p class="section-desc">
+      자연어 질의가 분석 보고서로 변환되는 내부 5단계 과정.
+      기존 Text-to-SQL 도구와 달리, 교육 공시 도메인 지식이 모든 단계에 주입된다.
+    </p>
+
+    <div class="e2e-flow">
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">A</div></div>
+        <div class="e2e-card">
+          <h4>질의 분석 (Query Understanding)</h4>
+          <div class="e2e-detail">
+            <p>LLM이 사용자 질문에서 <strong>의도</strong>, <strong>대상 컬럼</strong>, <strong>분석 유형</strong>을 추출한다.</p>
+            <div class="code-block">"학교 교원이랑 학생 수 비교했을 때 비이상적으로 늘어나는 거 있어?"
+→ 의도: 비교 분석 (두 변수 간 관계)
+→ 대상: teacher_count, student_count
+→ 유형: 방향 불일치 탐지 (역방향 변동)
+→ 매칭 룰: C1-1 (학생↔교원 연동)</div>
+            <div class="callout insight">
+              <span class="callout-label">범용 챗봇과의 차이</span>
+              일반 Text-to-SQL은 컬럼명을 사용자가 정확히 알아야 한다.
+              우리는 "교원"이라는 자연어를 teacher_count, 정규교원, 기간제교원 등 관련 컬럼으로 자동 매핑하고,
+              기존 룰셋(C1-1)과 연결하여 적절한 분석 기준을 자동 적용한다.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">B</div></div>
+        <div class="e2e-card">
+          <h4>분석 계획 수립 (Plan Generation)</h4>
+          <div class="e2e-detail">
+            <p>LLM이 JSON 형태의 분석 계획을 생성한다. 어떤 컬럼을, 어떤 기준으로, 어떻게 비교할지를 구조화한다.</p>
+            <div class="code-block">{
+  "columns": ["school_name","year","student_count","teacher_count"],
+  "criteria": "전년대비 변동률 방향 불일치",
+  "threshold": "C1-1 기준: 변동 방향이 반대",
+  "comparison": "동료군(같은 구, 같은 설립유형) 평균",
+  "pandas_code": "result = df.groupby('school_code').apply(check_direction)...",
+  "normal_exceptions": ["학과 개편","교육통계 연계 항목"]
+}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">C</div></div>
+        <div class="e2e-card">
+          <h4>안전 실행 (Sandboxed Execution)</h4>
+          <div class="e2e-detail">
+            <p>생성된 pandas 코드를 <strong>화이트리스트 기반 샌드박스</strong>에서 실행한다.</p>
+            <div class="security-grid">
+              <div class="sec-card">
+                <div class="sec-icon">🛡️</div>
+                <h5>화이트리스트</h5>
+                <p>허용된 함수만 실행 가능: groupby, filter, query, describe, mean, median 등</p>
+              </div>
+              <div class="sec-card">
+                <div class="sec-icon">🚫</div>
+                <h5>금지 패턴</h5>
+                <p>import, exec, eval, open, os., sys., subprocess, __ 등 차단</p>
+              </div>
+              <div class="sec-card">
+                <div class="sec-icon">📋</div>
+                <h5>읽기 전용</h5>
+                <p>DataFrame 복사본에서 실행. 원본 데이터 변경 불가</p>
+              </div>
+              <div class="sec-card">
+                <div class="sec-icon">⏱️</div>
+                <h5>타임아웃</h5>
+                <p>실행 시간 5초 제한. 무한루프 방지</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">D</div></div>
+        <div class="e2e-card">
+          <h4>결과 해석 (Report Generation)</h4>
+          <div class="e2e-detail">
+            <p>pandas 실행 결과를 LLM이 받아서 <strong>구조화된 보고서</strong>로 변환한다.</p>
+            <div class="io-row">
+              <div class="io-box llm-io">
+                <span class="io-label">보고서 구성</span>
+                ① 확인한 컬럼 목록<br>
+                ② 적용한 수치 기준과 근거<br>
+                ③ 탐지 결과 (이상 학교 리스트)<br>
+                ④ 실제 데이터값 vs 비교군<br>
+                ⑤ 자연어 해석 + 맥락 설명<br>
+                ⑥ 신뢰도 표시 (높음/중간/낮음)<br>
+                ⑦ 정상 예외 해당 여부
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">E</div></div>
+        <div class="e2e-card">
+          <h4>후속 탐색 제안 (Guided Follow-up)</h4>
+          <div class="e2e-detail">
+            <p>분석 결과에 기반하여 <strong>다음 탐색 방향</strong>을 자동 제안한다. 기존 세션의 맥락을 유지하여 점진적으로 심화 탐색이 가능하다.</p>
+            <div class="io-row">
+              <div class="io-box" style="background:#FFF3E0; border:1px solid #FFB74D;">
+                <span class="io-label" style="color:#E65100;">제안 유형</span>
+                <strong>필드 확장:</strong> "급식비도 추가해서 볼래"<br>
+                <strong>범위 변경:</strong> "강남구만 따로 볼 수 있어?"<br>
+                <strong>시간 변경:</strong> "A고 3년 추이 보여줘"<br>
+                <strong>룰셋 연동:</strong> "이 학교 전체 룰 점검 결과 보여줘"<br>
+                <strong>패턴 매칭:</strong> "이 패턴이랑 비슷한 학교 더 있어?"
+              </div>
+            </div>
+            <div class="callout insight">
+              <span class="callout-label">세션 패턴 종합</span>
+              사용자가 여러 질문을 던지면, 각 결과의 주제(학폭, 교원, 재정 등)를 자동 추적하여
+              MC-1~MC-13 맥락 패턴과 매칭한다.
+              "지금까지 탐색 결과를 종합하면 MC-1(학교 분위기 악화) 패턴과 유사합니다."
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 3.5: 보정 로직 + 정상 예외                             -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">03-B</span>보정 로직 · 정상 예외 필터</h2>
+    <p class="section-desc">
+      탐지 결과의 정확도를 높이기 위해 적용되는 보정 로직.
+      KERIS 1차 시스템이 이미 잡는 것을 중복 탐지하지 않고,
+      정의 차이를 사전 보정하며, 정상 예외 16가지를 자동 태깅한다.
+    </p>
+
+    <!-- 보정 구조 3단계 -->
+    <div class="e2e-flow">
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">I</div></div>
+        <div class="e2e-card">
+          <h4>사전 보정 (데이터 정의 차이)</h4>
+          <div class="e2e-sub">데이터 로드 시점에 적용 — data_loader.py</div>
+          <div class="e2e-detail">
+            <table class="comp-table">
+              <thead><tr><th>보정 항목</th><th>문제</th><th>보정 방법</th><th>효과</th></tr></thead>
+              <tbody>
+                <tr><td><strong>F1' 강사 제외</strong></td><td>학교알리미 교원 총계에 강사 포함, KESS에는 미포함 → 55.6% 오탐</td><td><code>총계(계) - 강사(계) = KESS 비교용</code></td><td>오탐 70건 → 0건</td></tr>
+                <tr><td><strong>학급수 파싱</strong></td><td>"28(3)" 형태 — 괄호 안은 특수학급</td><td><code>re.match(r'(\d+)', val)</code> 괄호 앞 숫자만 추출</td><td>C1 룰 정상 작동</td></tr>
+                <tr><td><strong>학생수 파싱</strong></td><td>"704(13)" 형태 — 괄호 안은 특수학급 학생수</td><td>성별학생수__계 컬럼 사용 (정수형)</td><td>파싱 오류 방지</td></tr>
+                <tr><td><strong>C1 교원수 기준</strong></td><td>강사 포함 시 KESS와 불일치</td><td>C1-3/C1-4에서 강사 제외 교원수 사용</td><td>교차검증 정합성</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">II</div></div>
+        <div class="e2e-card">
+          <h4>자동 필터 (코드 레벨 false positive 제거)</h4>
+          <div class="e2e-sub">룰 엔진 실행 중 적용 — rule_engine.py</div>
+          <div class="e2e-detail">
+            <table class="comp-table">
+              <thead><tr><th>필터</th><th>대상 룰</th><th>조건</th><th>효과</th></tr></thead>
+              <tbody>
+                <tr><td><strong>C3-3 등급X</strong></td><td>C3-3</td><td>가해학생수 = 0 → 자체해결/이월 추정 → 제외</td><td>6건 오탐 제거</td></tr>
+                <tr><td><strong>C1-1 2학급 임계</strong></td><td>C1-1</td><td>학급 변동 1학급은 정상 편성 → 2학급+ 만 탐지</td><td>16건 → 4건</td></tr>
+                <tr><td><strong>E2-2 노이즈</strong></td><td>E2-2</td><td>값이 0, 1, 100인 경우 제외 (상수/비율)</td><td>124건 → 14건</td></tr>
+                <tr><td><strong>C2-3 학생 안정</strong></td><td>C2-3</td><td>학생수 변동 ±5% 이내일 때만 급식비 탐지</td><td>학생수 급변에 의한 급식비 변동 제외</td></tr>
+                <tr><td><strong>B1-1 중복 경고</strong></td><td>B1-1</td><td>★★★→★★ 하향 (시스템 10% 경고와 부분 중복)</td><td>중복 탐지 중요도 낮춤</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="e2e-step">
+        <div class="e2e-timeline"><div class="e2e-num">III</div></div>
+        <div class="e2e-card">
+          <h4>정상 예외 16가지 (LLM 정상 사유 태깅)</h4>
+          <div class="e2e-sub">탐지 후 LLM이 정상 사유 후보로 제시 — llm_interface.py</div>
+          <div class="e2e-detail">
+            <p>아래 16가지 상황에서는 이상 탐지가 되더라도 <strong>정상일 가능성</strong>이 있다. 코드로 자동 판별이 어려운 항목은 LLM이 "정상 사유 후보"로 함께 제시하여 담당자가 판단한다.</p>
+            <table class="comp-table" style="font-size:12px">
+              <thead><tr><th>#</th><th>정상 예외</th><th>대상 룰</th><th>처리 방식</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>신설/폐교/통폐합/분교-본교 전환</td><td>전체</td><td>LLM 사유 태그</td></tr>
+                <tr><td>2</td><td>학급 감축·증설 정책 적용 연도</td><td>C1, B1</td><td>LLM 사유 태그</td></tr>
+                <tr><td>3</td><td>학과 개편/고교학점제 전환</td><td>C1, C5</td><td>LLM 사유 태그</td></tr>
+                <tr><td>4</td><td>남녀공학 전환</td><td>C5</td><td>LLM 사유 태그</td></tr>
+                <tr><td>5</td><td>자료기준일이 항목 간 다른 경우</td><td>전체</td><td>LLM 사유 태그</td></tr>
+                <tr><td>6</td><td>학폭 공시연도 ≠ 사안 발생 연도</td><td>B1-6, C3-3</td><td>LLM 사유 태그</td></tr>
+                <tr><td>7</td><td>급식비 입력단위 '천원' 미준수</td><td>C2-3</td><td>LLM 사유 태그 + C2-3+ 극단값 분리</td></tr>
+                <tr><td>8</td><td>기준일 차이 코호트 산술 오차</td><td>C5-1</td><td>임계 완화 (-7%~+3%) 반영</td></tr>
+                <tr><td>9</td><td>8월 확정 후 SR 수정 한쪽 반영</td><td>F1'</td><td>LLM 사유 태그</td></tr>
+                <tr><td>10</td><td>보직교사 1교사 1직위 규칙</td><td>C1-5</td><td>LLM 사유 태그</td></tr>
+                <tr><td>11</td><td>교육통계 연계 14개 항목 수정 불가</td><td>E2, F3</td><td>E2 대상에서 연계 항목 제외</td></tr>
+                <tr><td>12</td><td>교원 연계 제외 규칙</td><td>F1', F3</td><td>강사 보정 공식에 반영 (I단계)</td></tr>
+                <tr><td>13</td><td>가해학생 조치 미실시 → 가해수 미포함</td><td>C3-3</td><td><strong>자동 필터</strong> (등급X 제외)</td></tr>
+                <tr><td>14</td><td>자동 제외 (신설학교 전년도)</td><td>E1</td><td>LLM 사유 태그</td></tr>
+                <tr><td>15</td><td>교육청별 증감기준 자체 설정</td><td>B1</td><td>B1-1 ★★ 하향으로 반영</td></tr>
+                <tr><td>16</td><td>졸업생 진로현황 집계 범위 차이</td><td>F1'</td><td>LLM 사유 태그</td></tr>
+              </tbody>
+            </table>
+
+            <div class="callout insight" style="margin-top:24px">
+              <span class="callout-label">설계 원칙</span>
+              16가지 중 코드로 자동 필터 가능한 것(#8, #11, #12, #13, #15)은 <strong>사전 보정 또는 자동 필터</strong>로 처리한다.
+              나머지 11가지는 외부 정보(정책 변경, 학교 특성 등)가 필요하므로, LLM이 탐지 결과와 함께
+              "이런 정상 사유가 있을 수 있습니다"라고 <strong>태그 형태로 제시</strong>한다.
+              최종 판단은 항상 담당자의 영역이다.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 4: 기존 도구 대비 차별점                               -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">04</span>기존 도구 대비 차별점</h2>
+    <p class="section-desc">
+      범용 Text-to-SQL 도구(Chat2DB, BlazeSQL, Vanna.ai 등)와 비교한 핵심 차별점.
+      "도메인 특화 + 룰셋 연동 + 맥락 해석"이라는 조합은 기존 제품에 없다.
+    </p>
+
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th>기능</th>
+          <th>범용 Text-to-SQL</th>
+          <th>EduData Watch</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>도메인 지식</strong></td>
+          <td class="cross">없음 (스키마만 읽음)</td>
+          <td class="check">매뉴얼 986p + 룰셋 25개 + 정상 예외 16개 사전 탑재</td>
+        </tr>
+        <tr>
+          <td><strong>분석 기준</strong></td>
+          <td class="cross">사용자가 직접 지정</td>
+          <td class="check">v3 룰셋 기준 자동 적용 (3축 기반 별 등급)</td>
+        </tr>
+        <tr>
+          <td><strong>비교군</strong></td>
+          <td class="cross">사용자가 직접 설정</td>
+          <td class="check">동료군(같은 구, 같은 설립유형) 자동 매칭</td>
+        </tr>
+        <tr>
+          <td><strong>결과 해석</strong></td>
+          <td class="cross">SQL 결과 테이블만 반환</td>
+          <td class="check">자연어 해석 + 정상 사유 추론 + 확인 질문 생성</td>
+        </tr>
+        <tr>
+          <td><strong>후속 조치</strong></td>
+          <td class="cross">없음</td>
+          <td class="check">"자체점검표 p17 확인 대상" 등 구체적 안내</td>
+        </tr>
+        <tr>
+          <td><strong>우선순위</strong></td>
+          <td class="cross">없음</td>
+          <td class="check">4항 점수 공식 + "오늘의 3건" 자동 선정</td>
+        </tr>
+        <tr>
+          <td><strong>패턴 감지</strong></td>
+          <td class="cross">없음</td>
+          <td class="check">MC-1~MC-13 맥락 패턴 자동 매칭</td>
+        </tr>
+        <tr>
+          <td><strong>이상치 맥락</strong></td>
+          <td class="cross">통계 수치만</td>
+          <td class="check">인과 방향(학생→학급→교원) 기반 맥락적 이상 감지</td>
+        </tr>
+        <tr>
+          <td><strong>False Positive 관리</strong></td>
+          <td class="cross">없음</td>
+          <td class="check">16개 정상 예외 자동 필터 + LLM 사유 추론</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  SECTION 5: 학술 근거                                         -->
+  <!-- ============================================================ -->
+  <section class="section">
+    <h2 class="section-title"><span class="num">05</span>학술적 근거</h2>
+    <p class="section-desc">
+      파이프라인 설계의 학술적 기반. 각 레이어의 접근 방식이 최신 연구에 의해 뒷받침된다.
+    </p>
+
+    <div class="security-grid">
+      <div class="sec-card" style="border-left:3px solid var(--color-layer3-border);">
+        <h5>AnoLLM (ICLR 2025)</h5>
+        <p>LLM 기반 표형 데이터 이상치 탐지. 기존 11개 방법 대비 SOTA 달성 (AUC-ROC 0.810). 레이어 3의 LLM 활용 근거.</p>
+      </div>
+      <div class="sec-card" style="border-left:3px solid var(--color-layer2-border);">
+        <h5>CausalTAD (arXiv 2025)</h5>
+        <p>인과관계 기반 컬럼 배치 시 이상치 탐지 정확도 +9.1%. C1 룰(학생→학급→교원 인과 방향)의 직접적 근거.</p>
+      </div>
+      <div class="sec-card" style="border-left:3px solid var(--color-layer4-border);">
+        <h5>CMS Auto DQM (arXiv 2501)</h5>
+        <p>"A threshold too low will trigger too many false positives." Alert Fatigue 방지를 위한 우선순위 시스템의 근거.</p>
+      </div>
+      <div class="sec-card" style="border-left:3px solid var(--color-layer1-border);">
+        <h5>Atlanta Cheating Scandal (2011)</h5>
+        <p>통계적 이상 패턴이 교육 데이터 부정을 최초로 밝혀낸 선례. 44개교 178명 적발. 맥락 탐지의 현실적 가치.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== REFERENCE ===== -->
+  <section class="ref-section">
+    <h3>참고 문헌</h3>
+    <ul class="ref-list">
+      <li><strong>[1]</strong> Song et al., "AnoLLM: Large Language Models for Tabular Anomaly Detection," ICLR 2025.</li>
+      <li><strong>[2]</strong> Wang et al., "CausalTAD: Causal Column Order for LLM Tabular Anomaly Detection," arXiv 2025.</li>
+      <li><strong>[3]</strong> CMS Collaboration, "Automated Data Quality Monitoring," arXiv 2501.13789, 2025.</li>
+      <li><strong>[4]</strong> Atlanta Public Schools cheating scandal, Wikipedia, 2011.</li>
+      <li><strong>[5]</strong> 2026년 정보공시매뉴얼, 한국교육학술정보원(KERIS).</li>
+      <li><strong>[6]</strong> 공공데이터 품질관리 매뉴얼 v2.1, 한국지능정보사회진흥원(NIA).</li>
+      <li><strong>[7]</strong> Chat2DB (github.com/chat2db/Chat2DB), Apache 2.0, 100만+ 사용자.</li>
+      <li><strong>[8]</strong> BlazeSQL (blazesql.com), 범용 AI 데이터 분석 도구.</li>
+      <li><strong>[9]</strong> Sapie-SQL Agent, 솔트웨어, 2025. 한국어 비즈니스 환경 최적화 Text-to-SQL.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>

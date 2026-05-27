@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduData Watch</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1 class="brand">EduData Watch</h1>
+      <p class="brand-sub">정보공시 이상치 탐지</p>
+    </div>
+    <div class="sidebar-stats">
+      <div class="stat-pill"><span class="stat-num" id="s-detections">-</span><span class="stat-label">탐지</span></div>
+      <div class="stat-pill"><span class="stat-num" id="s-schools">-</span><span class="stat-label">학교</span></div>
+      <div class="stat-pill accent"><span class="stat-num" id="s-rules">-</span><span class="stat-label">룰</span></div>
+    </div>
+    <div class="sidebar-search"><input type="text" id="school-search" placeholder="학교명 검색..."></div>
+    <div class="sidebar-list" id="school-list"></div>
+    <div class="sidebar-dist" id="sidebar-dist"></div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main" id="main">
+    <div class="main-empty" id="main-empty">
+      <h2>학교를 선택하세요</h2>
+      <p style="color:var(--text-muted);font-size:13px">좌측 목록에서 학교를 클릭하면 상세 보고서가 표시됩니다</p>
+    </div>
+
+    <div class="main-content" id="main-content" style="display:none">
+      <div class="school-header" id="school-header"></div>
+      <div class="ai-summary" id="ai-summary"></div>
+      <div class="summary-row" id="summary-row"></div>
+
+      <!-- 차트 (검토 후보 위) -->
+      <div class="section-title">추이 차트</div>
+      <div class="charts-row">
+        <div class="chart-card"><canvas id="chart-main"></canvas></div>
+        <div class="chart-card"><canvas id="chart-bullying"></canvas></div>
+      </div>
+
+      <!-- 검토 후보 카테고리 카드 -->
+      <div class="section-title">검토 후보 상세</div>
+      <div id="category-cards"></div>
+
+      <!-- 전체 데이터 테이블 (접기) -->
+      <details class="full-table-details">
+        <summary>전체 시계열 데이터 테이블 보기</summary>
+        <div class="data-table-wrap" id="full-data-table"></div>
+      </details>
+
+      <!-- 커스텀 분석 패널 -->
+      <div class="section-title">커스텀 분석</div>
+      <div class="custom-panel" id="custom-panel">
+        <h4>컬럼 선택</h4>
+        <div class="col-selector" id="col-selector"></div>
+        <h4 style="margin-top:8px">지역 필터</h4>
+        <div class="district-filter" id="district-filter"></div>
+        <div class="custom-input-row" style="margin-top:8px">
+          <input type="text" id="custom-query" placeholder="분석 질문 입력...">
+          <button id="custom-send">분석</button>
+        </div>
+      </div>
+
+      <!-- 내 분석 아카이브 (커스텀 + 챗봇 저장 카드) -->
+      <div class="section-title archive-title" id="archive-title" style="display:none">내 분석 아카이브</div>
+      <div id="custom-results"></div>
+
+      <!-- 대화형 탐색 -->
+      <div class="section-title">대화형 탐색</div>
+      <div class="chat-section" id="chat-section">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg system"><div class="msg-body">이 학교에 대해 궁금한 것을 물어보세요.</div></div>
+        </div>
+        <div class="chat-chips" id="chat-chips"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="예: 급식비 추이도 보고 싶어">
+          <button id="chat-send">전송</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
