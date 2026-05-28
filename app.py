@@ -5,6 +5,7 @@ LLM: Google Gemini 2.5 flash-lite (.env에서 키 로드)
 """
 
 import os
+import re
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -54,8 +55,9 @@ SYSTEM_PROMPT = """당신은 교육 정보공시 데이터 품질 분석 전문 
 - 가해학생 조치 미실시 시 가해학생수 미포함
 
 [출력 규칙]
-- 절대 판정하지 마세요 ("오류다", "잘못이다" 금지)
-- "검토 후보", "확인 권장" 표현만 사용
+- 절대 판정하지 마세요. 금지 표현: "오류다", "잘못이다", "이상하다", "이상치", "비정상", "수상하다"
+- 권장 표현만 사용: "검토 후보", "검토 신호", "확인 필요", "확인 권장"
+- 학교명은 result_data·입력 데이터의 실제 학교명을 그대로 사용. "OO고등학교", "[학교명]", "A고등학교", "B고", "가명" 같은 플레이스홀더·임의 학교명 절대 금지
 - 비교 시 동료군(같은 구, 같은 설립유형) 자동 적용
 - 결과에 항상 신뢰도(높음/중간/낮음) 표시
 - 한국어로 응답하세요
@@ -71,6 +73,23 @@ async def lifespan(app: FastAPI):
         engine = RuleEngine(df)
         detections = engine.run_all()
         scores = calculate_priority_scores(detections)
+
+        # 42교 통일: 검토 신호가 0건인 학교도 0점으로 목록·분포에 포함
+        school_meta = df[["school_code", "school_name"]].drop_duplicates(subset=["school_code"])
+        existing_codes = set(scores["school_code"]) if not scores.empty else set()
+        missing = school_meta[~school_meta["school_code"].astype(str).isin(existing_codes)]
+        if not missing.empty:
+            zero_rows = pd.DataFrame([{
+                "school_code": str(row["school_code"]),
+                "school_name": str(row["school_name"]),
+                "score": 0, "max_star": 0, "num_categories": 0,
+                "categories": "", "cat_weight_sum": 0,
+                "is_repeat": False, "num_detections": 0,
+            } for _, row in missing.iterrows()])
+            scores = pd.concat([scores, zero_rows], ignore_index=True)
+            scores = scores.sort_values("score", ascending=False).reset_index(drop=True)
+            scores["rank"] = range(1, len(scores) + 1)
+            print(f"[INFO] 검토 신호 없는 학교 {len(missing)}교를 0점으로 보강")
 
         app_state["df"] = df
         app_state["detections"] = detections
@@ -168,28 +187,51 @@ def _rename_cols_ko(data_list: list) -> list:
 @app.get("/api/dashboard")
 async def dashboard():
     scores = app_state.get("scores", pd.DataFrame())
+    detections = app_state.get("detections", pd.DataFrame())
+    df = app_state.get("df", pd.DataFrame())
+
     if scores.empty:
-        return {"top3": [], "distribution": {}, "total_detections": 0, "total_schools": 0}
+        return {
+            "top3": [], "distribution": {}, "category_distribution": [],
+            "total_detections": 0, "total_schools": 0, "data_basis": _data_basis(df),
+        }
 
     top3 = get_top_n(scores, 3)
     dist = get_score_distribution(scores)
-    detections = app_state.get("detections", pd.DataFrame())
+
+    # Top3 — 대표 탐지 + 한국어 카테고리/룰명 부착
+    top3_enriched = [_enrich_school_summary(row, detections, df) for _, row in top3.iterrows()]
+
+    # 카테고리별 탐지 분포 (한국어명 포함, 코드 보조)
+    cat_dist = []
+    if not detections.empty:
+        cat_codes = detections["rule_id"].apply(_get_category_code)
+        cat_counts = cat_codes.value_counts().to_dict()
+        for code, ko in CATEGORY_NAMES_KO.items():
+            cnt = int(cat_counts.get(code, 0))
+            if cnt > 0:
+                cat_dist.append({"code": code, "ko": ko, "count": cnt})
+        cat_dist.sort(key=lambda x: -x["count"])
 
     return {
-        "top3": top3.to_dict(orient="records"),
+        "top3": top3_enriched,
         "distribution": dist,
+        "category_distribution": cat_dist,
         "total_detections": len(detections),
         "total_schools": len(scores),
-        "zero_schools": len(scores[scores["score"] < 6]) if not scores.empty else 0,
+        "zero_schools": int(len(scores[scores["score"] < 6])) if not scores.empty else 0,
+        "data_basis": _data_basis(df),
     }
 
 
 @app.get("/api/schools")
 async def school_list():
     scores = app_state.get("scores", pd.DataFrame())
+    detections = app_state.get("detections", pd.DataFrame())
+    df = app_state.get("df", pd.DataFrame())
     if scores.empty:
         return []
-    return scores[["school_code", "school_name", "score", "rank", "num_categories"]].to_dict(orient="records")
+    return [_enrich_school_summary(row, detections, df) for _, row in scores.iterrows()]
 
 
 @app.get("/api/school/{school_code}")
@@ -242,13 +284,17 @@ async def school_detail(school_code: str):
         "detection_cards": det_cards,
     }
 
-    # Gemini 해석: 상단 요약 + 카테고리별 해석
+    # Gemini 해석: 상단 요약 — 실패 시 안전 폴백 (임의 수치 X)
     client = app_state.get("gemini")
     if client and not school_det.empty:
         try:
             result["llm_explanation"] = _explain_with_gemini(client, school_det, school_df)
+        except GeminiError as e:
+            print(f"[WARN] llm_explanation Gemini 실패: {e}")
+            result["llm_explanation"] = FALLBACK_AI_TEXT
         except Exception as e:
-            result["llm_explanation"] = f"(LLM 해석 오류: {e})"
+            print(f"[WARN] llm_explanation 예상치 못한 실패: {e}")
+            result["llm_explanation"] = FALLBACK_AI_TEXT
     else:
         result["llm_explanation"] = "(LLM 비활성화 상태)"
 
@@ -331,14 +377,17 @@ async def custom_analysis(req: CustomRequest):
             col_labels = [next((lbl for lbl, key in TABLE_METRICS if key == c), c) for c in cols]
             anomaly_text = ", ".join(anomalies) if anomalies else "특이사항 없음"
 
-            prompt = f"""{school_name or '전체'} 학교의 {', '.join(col_labels)} 분석 결과:
+            target_label = school_name if school_name else "전체 학교 비교"
+            prompt = f"""{target_label}의 {', '.join(col_labels)} 분석 결과:
 데이터: {data_summary}
-변동률 이상: {anomaly_text}
+변동률 신호: {anomaly_text}
 
 정확히 3줄만 응답:
 해석: (핵심 발견 1~2문장)
 정상사유: (가능한 이유 쉼표 구분)
-확인권장: (담당자 행동 1문장)"""
+확인권장: (담당자 행동 1문장)
+
+주의: "이상치", "비정상" 단정 표현 금지. 학교명은 입력 데이터의 실제 학교명만 사용. "OO고등학교", "[학교명]", "A고등학교" 같은 플레이스홀더 금지."""
             text = _call_gemini(client, prompt)
             for line in text.strip().split("\n"):
                 line = line.strip()
@@ -386,15 +435,27 @@ async def custom_analysis(req: CustomRequest):
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_explore(req: ChatRequest):
-    df = app_state.get("df", pd.DataFrame())
-    if df.empty:
-        raise HTTPException(500, "데이터 미로드")
+    """자연어 챗봇. 어떤 실패에서도 500 대신 안전한 ChatResponse 반환."""
+    df_full = app_state.get("df", pd.DataFrame())
+    scores = app_state.get("scores", pd.DataFrame())
+    detections = app_state.get("detections", pd.DataFrame())
 
-    # 학교 필터 — 선택된 학교만 분석
+    if df_full.empty:
+        return _chat_fallback_response("데이터가 아직 로드되지 않았습니다.", req.query)
+
+    # #6 우선순위·Top·1위 류 질의는 LLM 안 거치고 scores/detections로 직접 응답
+    # (학교 단일 컨텍스트면 우회 안 함 — 그 학교 내부 질문일 가능성)
+    if not req.school_code:
+        pri = _handle_priority_query(req.query, df_full, scores, detections)
+        if pri is not None:
+            return ChatResponse(**pri)
+
+    # 학교 컨텍스트 필터
+    df = df_full
     if req.school_code:
         df = df[df["school_code"] == req.school_code].copy()
         if df.empty:
-            raise HTTPException(404, "해당 학교 데이터 없음")
+            return _chat_fallback_response(f"학교 코드 {req.school_code}의 데이터를 찾지 못했습니다.", req.query)
 
     columns_desc = app_state.get("columns", {})
     client = app_state.get("gemini")
@@ -402,54 +463,185 @@ async def chat_explore(req: ChatRequest):
     if not client:
         return _fallback_analysis(req.query, df, columns_desc)
 
+    # 학교명 조회 (실명만)
+    school_name_for_report = ""
+    if req.school_code:
+        sn = df_full[df_full["school_code"] == req.school_code]["school_name"]
+        if not sn.empty:
+            school_name_for_report = str(sn.iloc[0])
+
+    # ── 1단계: 분석 계획 ──
     try:
-        # 1단계: 분석 계획
         plan = _get_analysis_plan(client, req.query, columns_desc, req.history)
+    except GeminiError as e:
+        print(f"[WARN] chat plan Gemini 실패: {e}")
+        return _chat_fallback_response(FALLBACK_AI_TEXT, req.query)
 
-        # 2단계: 안전 실행
-        code = plan.get("pandas_code", "result = df.head()")
-        try:
-            result_df = safe_execute(code, df)
-        except Exception as e:
-            # 코드 실행 실패 → 기본 데이터로 폴백
-            fallback_cols = ["school_name", "year", "student_count", "class_count", "teacher_count",
-                             "bullying_cases", "bullying_victims", "graduation_rate"]
-            available = [c for c in fallback_cols if c in df.columns]
-            result_df = df[available].sort_values("year") if available else df.head(5)
-            plan["confidence"] = "중간"
+    # ── 2단계: 안전 실행 ──
+    code = plan.get("pandas_code", "result = df.head()")
+    try:
+        result_df = safe_execute(code, df)
+    except Exception as e:
+        print(f"[WARN] pandas_code 실행 실패: {e}")
+        fallback_cols = ["school_name", "year", "student_count", "class_count", "teacher_count",
+                         "bullying_cases", "bullying_victims", "graduation_rate"]
+        available = [c for c in fallback_cols if c in df.columns]
+        result_df = df[available].sort_values("year") if available else df.head(5)
+        plan["confidence"] = "중간"
 
-        # 3단계: 결과 해석
-        result_data_raw = result_df.head(20).to_dict(orient="records") if isinstance(result_df, pd.DataFrame) else []
-        result_data = _rename_cols_ko(result_data_raw)
-        # 학교명 조회
-        school_name_for_report = ""
-        if req.school_code:
-            full_df = app_state.get("df", pd.DataFrame())
-            sn = full_df[full_df["school_code"] == req.school_code]["school_name"]
-            if not sn.empty:
-                school_name_for_report = sn.iloc[0]
+    # ── 3단계: 결과 정리 (가명 컬럼 제거) ──
+    if isinstance(result_df, pd.DataFrame):
+        # school_name_anon이 결과에 섞여 들어오면 제거 (실명 정책)
+        if "school_name_anon" in result_df.columns:
+            result_df = result_df.drop(columns=["school_name_anon"])
+        result_data_raw = result_df.head(20).to_dict(orient="records")
+    else:
+        result_data_raw = []
+    result_data = _rename_cols_ko(result_data_raw)
+
+    # ── 4단계: 보고서 생성 (실패 시 폴백) ──
+    try:
         report = _generate_report(client, plan, result_data, req.query, school_name_for_report)
+    except GeminiError as e:
+        print(f"[WARN] chat report Gemini 실패: {e}")
+        report = FALLBACK_AI_TEXT
+        plan["confidence"] = "중간"
 
-        # 4단계: 후속 질문 제안
-        suggestions = _generate_suggestions(plan, result_data)
+    suggestions = _generate_suggestions(plan, result_data)
 
-        return ChatResponse(
-            plan=plan, result_data=result_data,
-            report=report,
-            confidence=plan.get("confidence", "중간"),
-            follow_up_suggestions=suggestions,
+    return ChatResponse(
+        plan=plan, result_data=result_data,
+        report=report,
+        confidence=plan.get("confidence", "중간"),
+        follow_up_suggestions=suggestions,
+    )
+
+
+def _chat_fallback_response(message: str, query: str) -> ChatResponse:
+    """챗봇 응답 안전 폴백 (500 방지)"""
+    return ChatResponse(
+        plan={
+            "analysis_plan": "AI 응답 지연·실패로 인한 안전 폴백",
+            "columns_used": [],
+            "criteria": "",
+            "pandas_code": "",
+            "comparison": "",
+            "confidence": "낮음",
+        },
+        result_data=[],
+        report=message,
+        confidence="낮음",
+        follow_up_suggestions=[
+            "검토 우선 후보를 다시 보여줘",
+            "★★★ 신호만 요약해줘",
+            "강남구 검토 후보만 보여줘",
+        ],
+    )
+
+
+# ── #6: 우선순위·Top 질의는 LLM 우회, scores/detections로 직접 응답 ──
+_PRIORITY_KEYWORDS = ("우선순위", "가장 높은", "가장 우선", "최우선", "상위", "top", "TOP", "Top", "1위", "검토 우선")
+_DISTRICTS_KO = ("강남", "노원", "관악")
+
+
+def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, detections: pd.DataFrame):
+    """'우선순위가 가장 높은 학교' 류 질문 → scores 기준 응답. 매칭 안 되면 None."""
+    if scores is None or scores.empty or df is None or df.empty:
+        return None
+    q = (query or "").strip()
+    if not any(k in q for k in _PRIORITY_KEYWORDS):
+        return None
+
+    # district 필터
+    district = next((d for d in _DISTRICTS_KO if d in q), None)
+    scope = scores
+    scope_label = "전체"
+    if district:
+        district_codes = set(df[df["district"] == district]["school_code"].astype(str))
+        scope = scores[scores["school_code"].astype(str).isin(district_codes)].copy()
+        scope_label = f"{district}구"
+    if scope.empty:
+        return None
+
+    # 표시 건수 N
+    m = re.search(r"top\s*(\d+)|상위\s*(\d+)|(\d+)\s*위|(\d+)\s*교", q.lower())
+    n = 5
+    if m:
+        nums = [int(g) for g in m.groups() if g]
+        if nums:
+            n = nums[0]
+    elif any(k in q for k in ("1위", "가장 높은", "가장 우선", "최우선")):
+        n = 1
+    n = max(1, min(n, 10))
+
+    top = scope.head(n)
+
+    result_data = []
+    for _, row in top.iterrows():
+        rep = _representative_detection(detections, row["school_code"])
+        rep_text = ""
+        if rep is not None:
+            rid = str(rep.get("rule_id", ""))
+            rep_text = f"{RULE_NAMES_KO.get(rid, rid)} ({rid})"
+        sf = df[df["school_code"] == row["school_code"]]
+        district_v = str(sf["district"].iloc[0]) if not sf.empty else ""
+        result_data.append({
+            "순위": int(row.get("rank", 0)),
+            "학교명": str(row["school_name"]),
+            "지역구": district_v,
+            "우선순위 점수": int(row.get("score", 0)),
+            "검토 신호 수": int(row.get("num_detections", 0)),
+            "카테고리 수": int(row.get("num_categories", 0)),
+            "최고 등급": "★" * int(row.get("max_star", 0)),
+            "대표 검토 신호": rep_text,
+        })
+
+    if n == 1 and result_data:
+        s = top.iloc[0]
+        rep = _representative_detection(detections, s["school_code"])
+        rep_line = ""
+        if rep is not None:
+            rid = str(rep.get("rule_id", ""))
+            rep_line = f" 대표 검토 신호: {RULE_NAMES_KO.get(rid, rid)}({rid}) — {rep.get('detail','')}."
+        report = (
+            f"{scope_label} 기준 우선순위가 가장 높은 학교는 **{s['school_name']}**입니다 "
+            f"(점수 {int(s['score'])}, 전체 순위 {int(s['rank'])}위, "
+            f"검토 신호 {int(s.get('num_detections', 0))}건, {int(s.get('num_categories', 0))}개 카테고리).{rep_line}\n\n"
+            f"본 답변은 앱의 우선순위 점수(scores)와 룰 기반 탐지(detections)를 그대로 사용한 결과이며, 별도 분석 기준을 만들지 않았습니다."
+        )
+    else:
+        report = (
+            f"{scope_label} 기준 우선순위 상위 {len(result_data)}교를 추출했습니다. "
+            f"이 결과는 앱의 검토 우선 후보와 동일한 기준(우선순위 점수·룰 기반 탐지)을 사용합니다."
         )
 
-    except Exception as e:
-        raise HTTPException(500, f"분석 오류: {e}")
+    return {
+        "plan": {
+            "analysis_plan": f"{scope_label} 학교들을 우선순위 점수 기준 정렬 → 상위 {n}교 추출",
+            "columns_used": ["score", "rank", "max_star", "num_detections", "num_categories"],
+            "criteria": "v4 우선순위 점수 = 3×최고별 + 2×Σ카테고리가중치 + 5×(3년 반복)",
+            "pandas_code": "",
+            "comparison": "scores DataFrame 사용 (앱 내부 통일 기준)",
+            "confidence": "높음",
+        },
+        "result_data": result_data,
+        "report": report,
+        "confidence": "높음",
+        "follow_up_suggestions": [
+            "1순위 학교 상세 보여줘",
+            "★★★ 신호만 요약해줘",
+            "강남구 검토 후보만 보여줘" if district != "강남" else "전체 검토 후보 보여줘",
+            "이 학교들의 공통 검토 신호는?",
+        ],
+    }
 
 
 @app.get("/api/school/{school_code}/ai/{category_ko}")
 async def category_ai(school_code: str, category_ko: str):
-    """카테고리별 AI 해석 (비동기 로드)"""
+    """카테고리별 AI 해석 (비동기 로드). 실패 시 안전 폴백 (UI 빈칸 방지)."""
     client = app_state.get("gemini")
     if not client:
-        return {"해석": "", "정상사유": "", "확인권장": ""}
+        return {**FALLBACK_CATEGORY, "해석": "LLM 비활성화 상태입니다."}
 
     detections = app_state.get("detections", pd.DataFrame())
     df = app_state.get("df", pd.DataFrame())
@@ -458,16 +650,19 @@ async def category_ai(school_code: str, category_ko: str):
     school_name = school_df["school_name"].iloc[0] if not school_df.empty else ""
     district = school_df["district"].iloc[0] if not school_df.empty else ""
 
-    # 해당 카테고리 카드 구축
     det_cards = _build_detection_cards(school_det, school_df, df, district)
     card = next((c for c in det_cards if c["category_ko"] == category_ko), None)
     if not card:
-        return {"해석": "해당 카테고리 없음", "정상사유": "", "확인권장": ""}
+        return {**FALLBACK_CATEGORY, "해석": "해당 카테고리 데이터가 없습니다."}
 
     try:
         return _explain_category(client, card, school_name, district)
+    except GeminiError as e:
+        print(f"[WARN] category_ai Gemini 실패 ({school_code}/{category_ko}): {e}")
+        return dict(FALLBACK_CATEGORY)
     except Exception as e:
-        return {"해석": str(e), "정상사유": "", "확인권장": ""}
+        print(f"[WARN] category_ai 예상치 못한 실패 ({school_code}/{category_ko}): {e}")
+        return dict(FALLBACK_CATEGORY)
 
 
 @app.get("/api/stats")
@@ -493,7 +688,7 @@ RULE_NAMES_KO = {
     "C3-3A": "미조치 피해 (강력)", "C3-3B": "미조치 피해 (참고)",
     "B1-1": "학생·교원 급변동", "B1-5": "진학률 급변동", "B1-6": "학폭 심의 급증",
     "C2-3": "급식비 변동", "C2-3+": "급식비 강한 변동",
-    "D2-2": "유사학교 대비 극단값", "C5-1": "학생수 비정상 변동",
+    "D2-2": "유사학교 대비 극단값", "C5-1": "학생수 변동 정상범위(-7~+3%) 밖",
     "E2-2": "수치 3년 정체", "F1'-1": "교원수 교차 불일치",
 }
 
@@ -501,7 +696,7 @@ CATEGORY_NAMES_KO = {
     "C1": "학생·자원 연동 점검", "C3": "미조치 피해 점검",
     "B1": "전년 대비 급변동", "C2": "학생·재정 연동 점검",
     "D2": "유사학교 대비 편차", "C5": "학년 진급 인원 점검",
-    "E2": "미갱신 의심 점검", "F1": "연계 시점 차이 점검",
+    "E2": "수치 미갱신 점검", "F1": "연계 시점 차이 점검",
 }
 
 # 데이터 테이블에 표시할 지표 목록
@@ -631,6 +826,70 @@ def _get_category_code(rule_id: str) -> str:
     return base.rstrip("'")
 
 
+def _categories_ko(categories_str: str) -> list:
+    """'C1, C3, B1' → [{'code':'C1','ko':'학생·자원 연동 점검'}, ...]"""
+    if not categories_str or pd.isna(categories_str):
+        return []
+    codes = [c.strip() for c in str(categories_str).split(",") if c.strip()]
+    return [{"code": c, "ko": CATEGORY_NAMES_KO.get(c, c)} for c in codes]
+
+
+def _representative_detection(detections_df: pd.DataFrame, school_code: str):
+    """학교의 가장 심각한 탐지(최고 별, 최신 연도) 1건"""
+    school = detections_df[detections_df["school_code"] == school_code]
+    if school.empty:
+        return None
+    return school.sort_values(["star", "year"], ascending=[False, False]).iloc[0]
+
+
+def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -> dict:
+    """학교 1건에 대표 탐지 + 한국어 카테고리/룰명 + 메타 부착"""
+    item = {
+        "school_code": str(row["school_code"]),
+        "school_name": str(row["school_name"]),
+        "score": int(row["score"]),
+        "rank": int(row.get("rank", 0)),
+        "max_star": int(row.get("max_star", 0)),
+        "num_categories": int(row.get("num_categories", 0)),
+        "num_detections": int(row.get("num_detections", 0)),
+        "is_repeat": bool(row.get("is_repeat", False)),
+        "categories_ko": _categories_ko(row.get("categories", "")),
+    }
+    school_rows = df[df["school_code"] == row["school_code"]]
+    if not school_rows.empty:
+        item["district"] = str(school_rows["district"].iloc[0])
+        item["school_type"] = str(school_rows["school_type"].iloc[0])
+    rep = _representative_detection(detections_df, row["school_code"])
+    if rep is not None:
+        rid = str(rep.get("rule_id", ""))
+        cat = _get_category_code(rid)
+        item["rep"] = {
+            "rule_id": rid,
+            "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
+            "category_code": cat,
+            "category_ko": CATEGORY_NAMES_KO.get(cat, cat),
+            "detail": str(rep.get("detail", "")),
+            "year": int(rep.get("year", 0)),
+            "star": int(rep.get("star", 0)),
+        }
+    return item
+
+
+def _data_basis(df: pd.DataFrame) -> dict:
+    """공시 데이터 기준 메타 (대시보드 헤더 문구용)"""
+    if df.empty:
+        return {}
+    years = sorted(int(y) for y in df["year"].unique())
+    districts = sorted(df["district"].dropna().unique().tolist())
+    return {
+        "years": years,
+        "year_range": f"{years[0]}~{years[-1]}" if years else "",
+        "districts": districts,
+        "schools": int(df["school_name"].nunique()),
+        "source": "학교알리미 · KESS 공시 데이터",
+    }
+
+
 # 룰 → 관련 컬럼 매핑
 RULE_COLUMNS = {
     "C1-1": [("학생수","student_count"), ("학급수","class_count")],
@@ -670,6 +929,8 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
             "year": int(d.get("year", 0)),
             "star": star,
             "detail": d.get("detail", ""),
+            # 관련 컬럼 라벨을 함께 내려서 프론트의 룰명 기반 매핑 의존 제거
+            "col_labels": [label for label, _ in RULE_COLUMNS.get(rid, [])],
         })
 
     # 카테고리별로 관련 컬럼 데이터 테이블 생성
@@ -717,14 +978,37 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
 
 # ── Gemini 호출 함수 ──
 
+class GeminiError(Exception):
+    """Gemini 호출 실패 (지연·할당량·503 등). 호출부에서 폴백 처리."""
+    pass
+
+
 def _call_gemini(client, prompt: str, system: str = SYSTEM_PROMPT) -> str:
-    """Gemini API 호출 공통 함수"""
+    """Gemini API 호출 공통 함수. 실패 시 GeminiError."""
     full_prompt = f"{system}\n\n---\n\n{prompt}"
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=full_prompt,
-    )
-    return response.text
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=full_prompt,
+        )
+        text = getattr(response, "text", None)
+        if not text:
+            raise GeminiError("응답 본문이 비어 있음")
+        return text
+    except GeminiError:
+        raise
+    except Exception as e:
+        # 503·할당량·지연·네트워크 등 모두 GeminiError로 표준화
+        raise GeminiError(f"{type(e).__name__}: {e}")
+
+
+# 사용자 노출용 안전 폴백 메시지 — 임의 수치 만들지 않음
+FALLBACK_AI_TEXT = "AI 응답이 일시적으로 지연되고 있습니다. 현재 화면의 공시 데이터와 룰 기반 검토 신호는 계속 확인할 수 있습니다."
+FALLBACK_CATEGORY = {
+    "해석": "AI 해석이 일시적으로 지연되고 있습니다.",
+    "정상사유": "",
+    "확인권장": "본 화면의 검토 후보 수치를 직접 확인해 주세요.",
+}
 
 
 def _explain_category(client, card: dict, school_name: str, district: str) -> dict:
@@ -736,13 +1020,15 @@ def _explain_category(client, card: dict, school_name: str, district: str) -> di
             vals = " / ".join(f"{k}:{v}" for k, v in row.items() if k != "지표" and v is not None)
             table_text += f"  {row['지표']}: {vals}\n"
 
-    prompt = f"""{school_name}({district}구) "{card['category_ko']}" 탐지 결과:
+    prompt = f"""{school_name}({district}구) "{card['category_ko']}" 카테고리에서 추출된 검토 후보 요약:
 {rules_text}
 {table_text}
 정확히 3줄만 응답. 장황하게 쓰지 마. 숫자 위주로 간결하게.
 해석: (동료군 대비 핵심 차이 1문장)
 정상사유: (가능한 이유 2~3개, 쉼표 구분)
-확인권장: (담당자 행동 1문장)"""
+확인권장: (담당자 행동 1문장)
+
+주의: "이상하다", "비정상", "오류" 같은 단정형 표현 금지. "{school_name}"을 그대로 사용하고 다른 학교명·플레이스홀더 만들지 마."""
 
     text = _call_gemini(client, prompt)
     result = {"해석": "", "정상사유": "", "확인권장": ""}
@@ -767,14 +1053,16 @@ def _explain_with_gemini(client, detections_df, school_df) -> str:
         det_list.append(f"{d.get('year')}년 {RULE_NAMES_KO.get(rid, rid)}: {d.get('detail','')}")
     det_text = " / ".join(det_list)
 
-    prompt = f"""아래 학교의 이상치 탐지 결과를 요약해주세요.
+    prompt = f"""아래 학교의 검토 후보 요약을 작성해주세요.
 
-탐지 결과: {det_text}
+검토 후보 항목: {det_text}
 
 반드시 아래 형식으로 3줄 응답 (각 줄 30~50자, 구체적 수치 포함):
-① [가장 심각한 항목] 어떤 지표가 어떻게 이상한지 수치와 함께 설명
-② [패턴] 몇 년 연속인지, 몇 개 영역에서 동시 탐지인지 등
-③ [확인 사항] 담당자가 구체적으로 무엇을 확인해야 하는지"""
+① [가장 우선] 어떤 지표에서 어떤 검토 신호가 추출됐는지 수치와 함께 설명
+② [패턴] 몇 년 연속인지, 몇 개 영역에서 동시 검토 후보로 잡혔는지 등
+③ [확인 권장] 담당자가 구체적으로 무엇을 확인해야 하는지
+
+주의: "이상하다", "비정상", "오류" 같은 단정형 표현 금지. "검토 신호 / 확인 필요" 사용."""
     return _call_gemini(client, prompt)
 
 
@@ -834,9 +1122,28 @@ pandas_code 규칙:
 
 
 def _generate_report(client, plan: dict, result_data: list, query: str, school_name: str = "") -> str:
-    prompt = f"""아래는 {school_name or '학교'}의 분석 결과입니다. 담당자를 위한 보고서를 작성해주세요.
+    # 실명 정책: school_name이 있으면 그것만, 없으면 result_data의 실제 학교명만 사용 — 플레이스홀더 절대 금지
+    if school_name:
+        target_clause = f"[대상 학교] {school_name}"
+        name_rule = (
+            f'주의: "[학교명]", "OO고등학교", "A고등학교" 같은 플레이스홀더/가명 금지. '
+            f'반드시 "{school_name}"을 그대로 사용하고, 다른 학교명을 만들어내지 마.'
+        )
+        intro = f"아래는 {school_name}의 검토 후보 분석 결과입니다."
+        finding_clause = f'1. 핵심 발견 — {school_name}의 구체적 수치를 포함하여 1문장'
+    else:
+        target_clause = "[대상] 복수 학교 비교 (특정 학교 지정 없음)"
+        name_rule = (
+            '주의: 학교명은 [분석 결과] result_data 안의 실제 학교명을 그대로 사용. '
+            '"OO고등학교", "[학교명]", "A고등학교" 같은 플레이스홀더·가명 절대 금지. '
+            '데이터에 없는 학교명을 만들어내지 마.'
+        )
+        intro = "아래는 검토 후보 분석 결과입니다."
+        finding_clause = "1. 핵심 발견 — 결과 데이터의 실제 학교명과 구체적 수치를 포함하여 1문장"
 
-[학교명] {school_name}
+    prompt = f"""{intro} 담당자를 위한 보고서를 작성해주세요.
+
+{target_clause}
 [사용자 질문] {query}
 [분석 계획] {plan.get('analysis_plan', '')}
 [적용 기준] {plan.get('criteria', '')}
@@ -844,12 +1151,13 @@ def _generate_report(client, plan: dict, result_data: list, query: str, school_n
 {json.dumps(result_data[:10], ensure_ascii=False, indent=2, default=str)}
 
 보고서 형식:
-1. 핵심 발견 — {school_name}의 구체적 수치를 포함하여 1문장
+{finding_clause}
 2. 상세 결과 — 연도별 수치 나열 (학교명 명시)
 3. 맥락 해석 — 동료군 대비 비교
 4. 확인 권장 사항
 
-주의: "[학교명]" 같은 플레이스홀더 쓰지 마. 반드시 "{school_name}"을 직접 써."""
+{name_rule}
+"이상치", "비정상" 단정 표현 금지. "검토 후보 / 검토 신호 / 확인 필요" 사용."""
     return _call_gemini(client, prompt)
 
 

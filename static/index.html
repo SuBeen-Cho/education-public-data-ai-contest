@@ -9,86 +9,142 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-<div class="app-layout">
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <h1 class="brand">EduData Watch</h1>
-      <p class="brand-sub">정보공시 이상치 탐지</p>
-    </div>
-    <div class="sidebar-stats">
-      <div class="stat-pill"><span class="stat-num" id="s-detections">-</span><span class="stat-label">탐지</span></div>
-      <div class="stat-pill"><span class="stat-num" id="s-schools">-</span><span class="stat-label">학교</span></div>
-      <div class="stat-pill accent"><span class="stat-num" id="s-rules">-</span><span class="stat-label">룰</span></div>
-    </div>
-    <div class="sidebar-search"><input type="text" id="school-search" placeholder="학교명 검색..."></div>
-    <div class="sidebar-list" id="school-list"></div>
-    <div class="sidebar-dist" id="sidebar-dist"></div>
-  </aside>
-
-  <!-- MAIN -->
-  <main class="main" id="main">
-    <div class="main-empty" id="main-empty">
-      <h2>학교를 선택하세요</h2>
-      <p style="color:var(--text-muted);font-size:13px">좌측 목록에서 학교를 클릭하면 상세 보고서가 표시됩니다</p>
-    </div>
-
-    <div class="main-content" id="main-content" style="display:none">
-      <div class="school-header" id="school-header"></div>
-      <div class="ai-summary" id="ai-summary"></div>
-      <div class="summary-row" id="summary-row"></div>
-
-      <!-- 차트 (검토 후보 위) -->
-      <div class="section-title">추이 차트</div>
-      <div class="charts-row">
-        <div class="chart-card"><canvas id="chart-main"></canvas></div>
-        <div class="chart-card"><canvas id="chart-bullying"></canvas></div>
-      </div>
-
-      <!-- 검토 후보 카테고리 카드 -->
-      <div class="section-title">검토 후보 상세</div>
-      <div id="category-cards"></div>
-
-      <!-- 전체 데이터 테이블 (접기) -->
-      <details class="full-table-details">
-        <summary>전체 시계열 데이터 테이블 보기</summary>
-        <div class="data-table-wrap" id="full-data-table"></div>
-      </details>
-
-      <!-- 커스텀 분석 패널 -->
-      <div class="section-title">커스텀 분석</div>
-      <div class="custom-panel" id="custom-panel">
-        <h4>컬럼 선택</h4>
-        <div class="col-selector" id="col-selector"></div>
-        <h4 style="margin-top:8px">지역 필터</h4>
-        <div class="district-filter" id="district-filter"></div>
-        <div class="custom-input-row" style="margin-top:8px">
-          <input type="text" id="custom-query" placeholder="분석 질문 입력...">
-          <button id="custom-send">분석</button>
-        </div>
-      </div>
-
-      <!-- 내 분석 아카이브 (커스텀 + 챗봇 저장 카드) -->
-      <div class="section-title archive-title" id="archive-title" style="display:none">내 분석 아카이브</div>
-      <div id="custom-results"></div>
-
-      <!-- 대화형 탐색 -->
-      <div class="section-title">대화형 탐색</div>
-      <div class="chat-section" id="chat-section">
-        <div class="chat-messages" id="chat-messages">
-          <div class="chat-msg system"><div class="msg-body">이 학교에 대해 궁금한 것을 물어보세요.</div></div>
-        </div>
-        <div class="chat-chips" id="chat-chips"></div>
-        <div class="chat-input-row">
-          <input type="text" id="chat-input" placeholder="예: 급식비 추이도 보고 싶어">
-          <button id="chat-send">전송</button>
-        </div>
+<!-- ===== HEADER ===== -->
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand">
+      <div class="brand-logo">E</div>
+      <div>
+        <div class="brand-name">EduData Watch</div>
+        <div class="brand-sub">정보공시 검토 후보 시스템</div>
       </div>
     </div>
-  </main>
+    <nav class="nav-tabs">
+      <a class="nav-tab active" data-view="dashboard" href="#">대시보드</a>
+      <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
+    </nav>
+    <div class="nav-right">
+      <input type="text" id="nav-search" class="nav-search" placeholder="학교명 검색…">
+      <span id="nav-period" class="nav-period">—</span>
+    </div>
+  </div>
+</header>
 
-</div>
+<!-- ===== MAIN ===== -->
+<main>
+
+  <!-- DASHBOARD VIEW -->
+  <section id="view-dashboard" class="view active">
+    <div class="page-title">
+      <h1>공시 데이터 검토 우선 후보</h1>
+      <span class="updated" id="data-basis-line">—</span>
+    </div>
+
+    <div class="section-label">대표 검토 신호 3건</div>
+    <div class="top3-grid" id="top3-grid">
+      <div class="loading">불러오는 중…</div>
+    </div>
+
+    <div class="filter-row" id="filter-row"></div>
+
+    <div class="two-col">
+      <div class="panel">
+        <h3>우선순위 점수 분포</h3>
+        <div class="dist-bars" id="dist-bars"></div>
+        <div class="sample-note" id="sample-note">—</div>
+      </div>
+      <div class="panel">
+        <h3>카테고리별 탐지 건수</h3>
+        <div class="cat-dist" id="cat-dist"></div>
+      </div>
+    </div>
+
+    <div class="list-panel">
+      <div class="list-head">
+        <h3>전체 학교</h3>
+        <span class="count" id="list-count">—</span>
+      </div>
+      <div class="list-wrap">
+        <table class="list" id="school-list-table"></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCHOOL DETAIL VIEW (기존 로직 유지) -->
+  <section id="view-school" class="view">
+    <div class="back-bar">
+      <a href="#" class="back-link" id="back-to-dashboard">← 대시보드로 돌아가기</a>
+    </div>
+
+    <div class="school-header" id="school-header"></div>
+    <div class="ai-summary" id="ai-summary"></div>
+    <div class="summary-row" id="summary-row"></div>
+
+    <!-- 차트 -->
+    <div class="section-title">추이 차트</div>
+    <div class="charts-row">
+      <div class="chart-card"><canvas id="chart-main"></canvas></div>
+      <div class="chart-card"><canvas id="chart-bullying"></canvas></div>
+    </div>
+
+    <!-- 검토 후보 카테고리 카드 -->
+    <div class="section-title">검토 후보 상세</div>
+    <div id="category-cards"></div>
+
+    <!-- 전체 데이터 테이블 (접기) -->
+    <details class="full-table-details">
+      <summary>전체 시계열 데이터 테이블 보기</summary>
+      <div class="data-table-wrap" id="full-data-table"></div>
+    </details>
+
+    <!-- 커스텀 분석 -->
+    <div class="section-title">커스텀 분석</div>
+    <div class="custom-panel" id="custom-panel">
+      <h4>컬럼 선택</h4>
+      <div class="col-selector" id="col-selector"></div>
+      <h4 style="margin-top:8px">지역 필터</h4>
+      <div class="district-filter" id="district-filter"></div>
+      <div class="custom-input-row" style="margin-top:8px">
+        <input type="text" id="custom-query" placeholder="분석 질문 입력…">
+        <button id="custom-send">분석</button>
+      </div>
+    </div>
+
+    <!-- 분석 아카이브 -->
+    <div class="section-title archive-title" id="archive-title" style="display:none">내 분석 아카이브</div>
+    <div id="custom-results"></div>
+  </section>
+
+</main>
+
+<footer class="page-footer">
+  <b>EduData Watch</b> · 교육 공공데이터 AI 활용 대회 출품작 · 프로토타입 N=42 (서울 3구 일반고)<br>
+  이 도구는 검토 후보를 추출합니다. 판정·결정은 담당자가 수행합니다.
+</footer>
+
+<!-- ===== FLOATING CHATBOT ===== -->
+<button id="chat-fab" class="chat-fab" title="AI 질문" aria-label="AI 질문 열기">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  <span>AI 질문</span>
+</button>
+
+<aside id="chat-panel" class="chat-panel" aria-hidden="true">
+  <div class="chat-panel-head">
+    <div>
+      <h4 id="chat-panel-title">공시 데이터에 질문하기</h4>
+      <p class="chat-panel-sub" id="chat-panel-sub">LLM은 판정하지 않고 확인을 돕습니다.</p>
+    </div>
+    <button id="chat-close" class="chat-close" aria-label="닫기">×</button>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-chips" id="chat-chips"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="자유롭게 질문해보세요…">
+    <button id="chat-send">전송</button>
+  </div>
+</aside>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

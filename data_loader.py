@@ -286,9 +286,9 @@ def anonymize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_column_descriptions() -> dict:
+    # 실명 정책: 가명 컬럼은 LLM 노출에서 제외 (school_name만 단일 출처)
     return {
         "school_name": "학교명",
-        "school_name_anon": "학교명 (가명)",
         "district": "구 (노원/강남/관악)",
         "school_type": "설립유형 (공립/사립)",
         "year": "연도 (2023/2024/2025)",

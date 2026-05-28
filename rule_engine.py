@@ -218,7 +218,7 @@ class RuleEngine:
         for _, row in self.df.dropna(subset=["student_count_yoy"]).iterrows():
             chg = row["student_count_yoy"]
             if chg < -7 or chg > 3:
-                self._add(row, "C5-1", "학생수 비정상 변동", 3, "C5",
+                self._add(row, "C5-1", "학생수 변동 정상범위(-7~+3%) 밖", 3, "C5",
                           f"학생수 변동 {chg:+.1f}% (정상: -7%~+3%)",
                           {"change_pct": round(chg, 1)})
 
