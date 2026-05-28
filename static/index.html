@@ -24,6 +24,7 @@
       <a class="nav-tab active" data-view="national" href="#">전국 현황</a>
       <a class="nav-tab" data-view="dashboard" href="#">서울 고등학교</a>
       <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
+      <a class="nav-tab" data-view="explorer" href="#">고급 탐색</a>
       <a class="nav-tab" data-view="advanced" href="#">고도화 미리보기</a>
     </nav>
     <div class="nav-right">
@@ -60,7 +61,7 @@
     </div>
   </section>
 
-  <!-- ===== DASHBOARD VIEW (Level 1 — 서울 선택 후) ===== -->
+  <!-- ===== DASHBOARD VIEW (Level 1 — 지역 담당자) ===== -->
   <section id="view-dashboard" class="view">
     <div class="back-bar">
       <a href="#" class="back-link" id="back-to-national">← 전국 현황으로</a>
@@ -70,33 +71,72 @@
       <span class="updated" id="data-basis-line">—</span>
     </div>
 
+    <div class="index-info-note">
+      <b>검토 우선도 지수</b>는 공시 데이터 확인 순서를 돕기 위한 내부 분석 지수이며, 학교 평가 점수가 아닙니다.
+      <div class="iin-sub">반영 요소: 룰 기반 검토 신호 수 · 신호의 강도 · 반복 여부 · 동료군 대비 이탈 정도 · 지역/표본 내 상대적 우선도</div>
+    </div>
+
     <div class="section-label">대표 검토 신호 3건</div>
     <div class="top3-grid" id="top3-grid">
       <div class="loading">불러오는 중…</div>
     </div>
 
-    <div class="filter-row" id="filter-row"></div>
+    <!-- 3-COL: 좌 필터 / 중 목록 / 우 통계 -->
+    <div class="dash-grid">
 
-    <div class="two-col">
-      <div class="panel">
-        <h3>검토 우선도 분포</h3>
-        <div class="dist-bars" id="dist-bars"></div>
-        <div class="sample-note" id="sample-note">—</div>
-      </div>
-      <div class="panel">
-        <h3>카테고리별 탐지 건수</h3>
-        <div class="cat-dist" id="cat-dist"></div>
-      </div>
-    </div>
+      <!-- 좌측 필터 패널 -->
+      <aside class="filter-panel" id="filter-panel">
+        <div class="filter-panel-head">
+          <h4>필터</h4>
+          <button class="filter-reset" id="filter-reset">전체 초기화</button>
+        </div>
+        <!-- 동적 렌더: 검토 우선도 구간 / 룰 accordion / 25개 구 / 학교 유형 -->
+      </aside>
 
-    <div class="list-panel">
-      <div class="list-head">
-        <h3>전체 학교</h3>
-        <span class="count" id="list-count">—</span>
-      </div>
-      <div class="list-wrap">
-        <table class="list" id="school-list-table"></table>
-      </div>
+      <!-- 중앙 목록 -->
+      <section class="list-area">
+        <div class="active-chips-wrap" id="active-chips">
+          <span class="ach-label">선택 필터</span>
+          <span style="font-size:11px;color:var(--text-muted);font-style:italic">없음</span>
+        </div>
+        <div class="list-toolbar">
+          <div class="lt-count" id="list-count">—</div>
+          <div class="lt-sort">
+            <label for="sort-select" style="font-size:11px">정렬</label>
+            <select id="sort-select" class="sort-select">
+              <option value="score_desc">검토 우선도 지수 높은순</option>
+              <option value="score_asc">검토 우선도 지수 낮은순</option>
+              <option value="name_asc">학교명 가나다순</option>
+              <option value="name_desc">학교명 역순</option>
+              <option value="dets_desc">검토 신호 수 많은순</option>
+              <option value="cats_desc">관련 카테고리 수 많은순</option>
+            </select>
+          </div>
+        </div>
+        <div class="list-panel">
+          <div class="list-head">
+            <h3>학교 목록</h3>
+            <span class="count" id="list-count-side">—</span>
+          </div>
+          <div class="list-wrap">
+            <table class="list" id="school-list-table"></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 우측 보조 통계 -->
+      <aside class="stats-panel">
+        <div class="panel">
+          <h3>검토 우선도 지수 분포</h3>
+          <div class="dist-bars" id="dist-bars"></div>
+          <div class="sample-note" id="sample-note">—</div>
+        </div>
+        <div class="panel" style="margin-top:14px">
+          <h3>카테고리별 검토 신호</h3>
+          <div class="cat-dist" id="cat-dist"></div>
+        </div>
+      </aside>
+
     </div>
   </section>
 
@@ -107,8 +147,20 @@
     </div>
 
     <div class="school-header" id="school-header"></div>
-    <div class="ai-summary" id="ai-summary"></div>
-    <div class="summary-row" id="summary-row"></div>
+
+    <!-- AI 보조 요약 (라벨 명시) -->
+    <div class="ai-summary-wrap" id="ai-summary-wrap" style="display:none">
+      <div class="ai-summary-head">
+        <span class="ai-tag-sm">AI</span>
+        <h4>AI 보조 요약</h4>
+        <span class="ai-summary-disclaim">공시 수치와 룰셋 결과 기반</span>
+      </div>
+      <div class="ai-summary" id="ai-summary"></div>
+      <div class="ai-summary-foot">공시 수치와 룰셋 결과를 바탕으로 생성된 보조 설명입니다. 최종 판단은 담당자 확인이 필요합니다.</div>
+    </div>
+
+    <!-- 상단 요약 카드 (5박스) -->
+    <div class="sd-summary-grid" id="sd-summary-grid"></div>
 
     <!-- 차트 -->
     <div class="section-title">추이 차트</div>
@@ -116,10 +168,11 @@
       <div class="chart-card"><canvas id="chart-main"></canvas></div>
       <div class="chart-card"><canvas id="chart-bullying"></canvas></div>
     </div>
+    <div class="chart-caption" id="chart-caption">—</div>
 
-    <!-- 검토 후보 카테고리 카드 -->
-    <div class="section-title">검토 후보 상세</div>
-    <div id="category-cards"></div>
+    <!-- 룰 단위 Evidence Card -->
+    <div class="section-title">검토 신호 상세 — 룰 단위</div>
+    <div id="evidence-cards"></div>
 
     <!-- 전체 데이터 테이블 (접기) -->
     <details class="full-table-details">
@@ -127,22 +180,37 @@
       <div class="data-table-wrap" id="full-data-table"></div>
     </details>
 
-    <!-- 커스텀 분석 -->
-    <div class="section-title">커스텀 분석</div>
-    <div class="custom-panel" id="custom-panel">
-      <h4>컬럼 선택</h4>
-      <div class="col-selector" id="col-selector"></div>
-      <h4 style="margin-top:8px">지역 필터</h4>
-      <div class="district-filter" id="district-filter"></div>
-      <div class="custom-input-row" style="margin-top:8px">
-        <input type="text" id="custom-query" placeholder="분석 질문 입력…">
-        <button id="custom-send">분석</button>
+    <!-- 고급 탐색 안내 -->
+    <div class="exp-link-box">
+      <div class="elb-text">
+        <b>같은 데이터셋에서 조건을 바꿔 다른 학교들과 비교</b>하고 싶다면,<br>
+        상단 <b>고급 탐색</b> 탭에서 지역·연도·지표·조건을 자유롭게 설정해 검색할 수 있습니다.
       </div>
+      <a href="#" data-view="explorer" id="link-explorer">고급 탐색에서 더 분석하기 →</a>
+    </div>
+  </section>
+
+  <!-- ===== EXPLORER VIEW (고급 탐색) ===== -->
+  <section id="view-explorer" class="view">
+    <div class="page-title">
+      <h1>고급 탐색</h1>
+      <span class="updated">전체 데이터셋에서 조건을 걸어 학교를 탐색합니다 · 룰 기반 탐지 외 자유 조건</span>
+    </div>
+    <div class="index-info-note">
+      이 화면은 <b>전체 DB 기준 조건 탐색</b>입니다. 특정 학교가 아닌, 분석 범위 안에서 어떤 학교들이 조건에 해당하는지 찾을 때 사용합니다.
+      <div class="iin-sub">결과는 룰 기반 검토 신호가 아니라 사용자가 입력한 조건의 결과이며, "검토 후보"로 단정하지 않습니다.</div>
     </div>
 
-    <!-- 분석 아카이브 -->
-    <div class="section-title archive-title" id="archive-title" style="display:none">내 분석 아카이브</div>
-    <div id="custom-results"></div>
+    <div class="explorer-grid">
+      <aside class="explorer-config" id="explorer-config">
+        <!-- 동적: 지역 / 컬럼 / 질문 -->
+      </aside>
+      <section class="explorer-results-area" id="explorer-results-area">
+        <div class="exp-results-empty">
+          왼쪽 패널에서 조건을 설정하고 <b>분석</b>을 눌러주세요. 결과 카드가 이곳에 누적됩니다.
+        </div>
+      </section>
+    </div>
   </section>
 
   <!-- ===== ADVANCED PREVIEW (제안 2 + 제안 4) ===== -->

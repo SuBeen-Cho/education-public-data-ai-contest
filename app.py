@@ -213,10 +213,26 @@ async def dashboard():
                 cat_dist.append({"code": code, "ko": ko, "count": cnt})
         cat_dist.sort(key=lambda x: -x["count"])
 
+    # 룰별 분포 (좌측 필터 accordion용)
+    rule_dist = []
+    if not detections.empty:
+        rule_counts = detections["rule_id"].value_counts().to_dict()
+        for rid, cnt in sorted(rule_counts.items(), key=lambda x: (-x[1], x[0])):
+            cat = _get_category_code(rid)
+            rule_dist.append({
+                "rule_id": rid,
+                "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
+                "category_code": cat,
+                "category_ko": CATEGORY_NAMES_KO.get(cat, cat),
+                "count": int(cnt),
+            })
+
     return {
         "top3": top3_enriched,
         "distribution": dist,
         "category_distribution": cat_dist,
+        "rule_distribution": rule_dist,
+        "districts_all": _seoul_25_districts(df),
         "total_detections": len(detections),
         "total_schools": len(scores),
         "zero_schools": int(len(scores[scores["score"] < 6])) if not scores.empty else 0,
@@ -271,9 +287,11 @@ async def school_detail(school_code: str):
         "school_name": school_name,
         "district": district,
         "school_type": school_type,
-        "score": int(school_score["score"].iloc[0]) if not school_score.empty else 0,
+        "score": float(school_score["score"].iloc[0]) if not school_score.empty else 0.0,
         "rank": int(school_score["rank"].iloc[0]) if not school_score.empty else 0,
         "is_repeat": bool(school_score["is_repeat"].iloc[0]) if not school_score.empty else False,
+        "num_detections": int(school_score["num_detections"].iloc[0]) if not school_score.empty else 0,
+        "num_rules": int(school_det["rule_id"].nunique()) if not school_det.empty else 0,
         "summary": {
             "detections": len(school_det),
             "categories_ko": cats_ko,
@@ -400,7 +418,9 @@ async def custom_analysis(req: CustomRequest):
             if not ai_result["해석"]:
                 ai_result["해석"] = text.strip()[:200]
         except Exception as e:
-            ai_result["해석"] = f"AI 해석 오류: {e}"
+            # 사용자 노출 문구는 통일된 폴백으로. 개발자 메시지는 서버 로그로만.
+            print(f"[WARN] custom_analysis AI 해석 실패: {e}")
+            ai_result["해석"] = FALLBACK_AI_TEXT
 
     # 결과 데이터 숫자 정리
     for row in result_data:
@@ -533,7 +553,7 @@ def _chat_fallback_response(message: str, query: str) -> ChatResponse:
         confidence="낮음",
         follow_up_suggestions=[
             "검토 우선 후보를 다시 보여줘",
-            "★★★ 신호만 요약해줘",
+            "우선 검토 신호만 요약해줘",
             "강남구 검토 후보만 보여줘",
         ],
     )
@@ -589,10 +609,10 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
             "순위": int(row.get("rank", 0)),
             "학교명": str(row["school_name"]),
             "지역구": district_v,
-            "우선순위 점수": int(row.get("score", 0)),
+            "검토 우선도 지수": f"{float(row.get('score', 0)):.1f}",
             "검토 신호 수": int(row.get("num_detections", 0)),
-            "카테고리 수": int(row.get("num_categories", 0)),
-            "최고 등급": "★" * int(row.get("max_star", 0)),
+            "관련 카테고리 수": int(row.get("num_categories", 0)),
+            "반복 신호": "반복" if bool(row.get("is_repeat", False)) else "단발",
             "대표 검토 신호": rep_text,
         })
 
@@ -604,22 +624,23 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
             rid = str(rep.get("rule_id", ""))
             rep_line = f" 대표 검토 신호: {RULE_NAMES_KO.get(rid, rid)}({rid}) — {rep.get('detail','')}."
         report = (
-            f"{scope_label} 기준 우선순위가 가장 높은 학교는 **{s['school_name']}**입니다 "
-            f"(점수 {int(s['score'])}, 전체 순위 {int(s['rank'])}위, "
+            f"{scope_label} 기준 검토 우선도가 가장 높은 학교는 **{s['school_name']}**입니다 "
+            f"(검토 우선도 지수 {float(s['score']):.1f}, 전체 순위 {int(s['rank'])}위, "
             f"검토 신호 {int(s.get('num_detections', 0))}건, {int(s.get('num_categories', 0))}개 카테고리).{rep_line}\n\n"
-            f"본 답변은 앱의 우선순위 점수(scores)와 룰 기반 탐지(detections)를 그대로 사용한 결과이며, 별도 분석 기준을 만들지 않았습니다."
+            f"본 답변은 앱 내부의 검토 우선도 지수(scores)와 룰 기반 검토 신호(detections)를 그대로 사용한 결과이며, "
+            f"추가 분석 기준을 만들지 않았습니다. 지수는 학교 평가가 아니라 확인 순서를 돕는 내부 분석값입니다."
         )
     else:
         report = (
-            f"{scope_label} 기준 우선순위 상위 {len(result_data)}교를 추출했습니다. "
-            f"이 결과는 앱의 검토 우선 후보와 동일한 기준(우선순위 점수·룰 기반 탐지)을 사용합니다."
+            f"{scope_label} 기준 검토 우선도 상위 {len(result_data)}교를 추출했습니다. "
+            f"이 결과는 앱의 검토 우선 후보와 동일한 기준(검토 우선도 지수·룰 기반 검토 신호)을 사용합니다."
         )
 
     return {
         "plan": {
-            "analysis_plan": f"{scope_label} 학교들을 우선순위 점수 기준 정렬 → 상위 {n}교 추출",
-            "columns_used": ["score", "rank", "max_star", "num_detections", "num_categories"],
-            "criteria": "v4 우선순위 점수 = 3×최고별 + 2×Σ카테고리가중치 + 5×(3년 반복)",
+            "analysis_plan": f"{scope_label} 학교들을 검토 우선도 지수 기준 정렬 → 상위 {n}교 추출",
+            "columns_used": ["score", "rank", "num_detections", "num_categories", "is_repeat"],
+            "criteria": "검토 우선도 지수 = 핵심 신호 강도 + 영역 가중치 + 반복 신호 가중치 (내부 분석 지수, 학교 평가 점수 아님)",
             "pandas_code": "",
             "comparison": "scores DataFrame 사용 (앱 내부 통일 기준)",
             "confidence": "높음",
@@ -629,7 +650,7 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
         "confidence": "높음",
         "follow_up_suggestions": [
             "1순위 학교 상세 보여줘",
-            "★★★ 신호만 요약해줘",
+            "우선 검토 신호만 요약해줘",
             "강남구 검토 후보만 보여줘" if district != "강남" else "전체 검토 후보 보여줘",
             "이 학교들의 공통 검토 신호는?",
         ],
@@ -669,13 +690,14 @@ async def category_ai(school_code: str, category_ko: str):
 async def stats():
     df = app_state.get("df", pd.DataFrame())
     detections = app_state.get("detections", pd.DataFrame())
+    # 내부 룰 메타(star)는 노출 명칭을 신호 강도 기준으로 변경. UI 분기에는 쓰지 않음.
     return {
         "data_rows": len(df),
         "schools": df["school_name"].nunique() if not df.empty else 0,
         "years": sorted(df["year"].unique().tolist()) if not df.empty else [],
         "total_detections": len(detections),
-        "star3_count": len(detections[detections["star"] == 3]) if not detections.empty else 0,
-        "star2_count": len(detections[detections["star"] == 2]) if not detections.empty else 0,
+        "priority_signal_count": len(detections[detections["star"] == 3]) if not detections.empty else 0,
+        "normal_signal_count": len(detections[detections["star"] == 2]) if not detections.empty else 0,
         "rules_triggered": detections["rule_id"].nunique() if not detections.empty else 0,
     }
 
@@ -843,13 +865,16 @@ def _representative_detection(detections_df: pd.DataFrame, school_code: str):
 
 
 def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -> dict:
-    """학교 1건에 대표 탐지 + 한국어 카테고리/룰명 + 메타 부착"""
+    """학교 1건에 대표 탐지 + 한국어 카테고리/룰명 + 메타 부착.
+    검토 우선도 지수는 score를 float로 노출 (소수점 1자리 표시는 프론트에서 처리).
+    max_star는 내부 룰 메타로만 유지 — UI에서 등급 분기에 쓰지 않음."""
+    score_f = float(row["score"])
     item = {
         "school_code": str(row["school_code"]),
         "school_name": str(row["school_name"]),
-        "score": int(row["score"]),
+        "score": score_f,                       # 표기·정렬은 프론트에서 .toFixed(1)
         "rank": int(row.get("rank", 0)),
-        "max_star": int(row.get("max_star", 0)),
+        "max_star": int(row.get("max_star", 0)),  # 내부 메타 (UI 분기 X)
         "num_categories": int(row.get("num_categories", 0)),
         "num_detections": int(row.get("num_detections", 0)),
         "is_repeat": bool(row.get("is_repeat", False)),
@@ -859,6 +884,9 @@ def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -
     if not school_rows.empty:
         item["district"] = str(school_rows["district"].iloc[0])
         item["school_type"] = str(school_rows["school_type"].iloc[0])
+    # 룰 필터 정확 매칭용 — 해당 학교가 트리거한 전체 rule_id 집합 (중복 제거)
+    school_det = detections_df[detections_df["school_code"] == row["school_code"]]
+    item["rule_ids"] = sorted({str(r) for r in school_det["rule_id"].unique()}) if not school_det.empty else []
     rep = _representative_detection(detections_df, row["school_code"])
     if rep is not None:
         rid = str(rep.get("rule_id", ""))
@@ -873,6 +901,25 @@ def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -
             "star": int(rep.get("star", 0)),
         }
     return item
+
+
+SEOUL_DISTRICTS_25 = [
+    "강남", "강동", "강북", "강서", "관악", "광진", "구로", "금천", "노원", "도봉",
+    "동대문", "동작", "마포", "서대문", "서초", "성동", "성북", "송파", "양천", "영등포",
+    "용산", "은평", "종로", "중구", "중랑",
+]
+
+
+def _seoul_25_districts(df: pd.DataFrame) -> list:
+    """서울 25개 구 — 보유/미보유 상태 포함"""
+    if df is None or df.empty:
+        return [{"name": d, "active": False, "schools": 0} for d in SEOUL_DISTRICTS_25]
+    out = []
+    for d in SEOUL_DISTRICTS_25:
+        sub = df[df["district"] == d]
+        cnt = int(sub["school_code"].nunique()) if not sub.empty else 0
+        out.append({"name": d, "active": cnt > 0, "schools": cnt})
+    return out
 
 
 def _data_basis(df: pd.DataFrame) -> dict:
@@ -1002,10 +1049,10 @@ def _call_gemini(client, prompt: str, system: str = SYSTEM_PROMPT) -> str:
         raise GeminiError(f"{type(e).__name__}: {e}")
 
 
-# 사용자 노출용 안전 폴백 메시지 — 임의 수치 만들지 않음
-FALLBACK_AI_TEXT = "AI 응답이 일시적으로 지연되고 있습니다. 현재 화면의 공시 데이터와 룰 기반 검토 신호는 계속 확인할 수 있습니다."
+# 사용자 노출용 안전 폴백 메시지 — 임의 수치 만들지 않음. 톤·표현 통일.
+FALLBACK_AI_TEXT = "AI 보조 해석을 불러오지 못했습니다. 원천 데이터와 검토 신호를 기준으로 확인해 주세요."
 FALLBACK_CATEGORY = {
-    "해석": "AI 해석이 일시적으로 지연되고 있습니다.",
+    "해석": "AI 보조 해석을 불러오지 못했습니다. 원천 데이터와 검토 신호를 기준으로 확인해 주세요.",
     "정상사유": "",
     "확인권장": "본 화면의 검토 후보 수치를 직접 확인해 주세요.",
 }

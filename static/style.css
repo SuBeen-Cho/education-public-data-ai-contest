@@ -478,13 +478,172 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .cat-grade.grade-priority{background:var(--cobalt);color:#fff}
 .cat-grade.grade-normal{background:#64748B;color:#fff}
 
+/* ===== INDEX INFO NOTE (지수 안내) ===== */
+.index-info-note{background:var(--cobalt-bg);border:1px solid #BFDBFE;border-left:4px solid var(--cobalt);border-radius:6px;padding:10px 14px;margin:0 0 18px;font-size:12px;color:var(--blue-text);line-height:1.55}
+.index-info-note b{font-weight:800;color:var(--navy)}
+.index-info-note .iin-sub{font-size:11px;color:var(--text-sub);margin-top:3px;font-weight:600}
+
+/* ===== DASH GRID — 좌 필터 / 중 목록 / 우 통계 ===== */
+.dash-grid{display:grid;grid-template-columns:240px 1fr 280px;gap:16px;align-items:flex-start;margin-top:18px}
+.dash-grid .filter-panel,.dash-grid .stats-panel{position:sticky;top:74px;align-self:flex-start;max-height:calc(100vh - 90px);overflow-y:auto}
+.dash-grid .list-area{min-width:0}
+
+/* ===== FILTER PANEL ===== */
+.filter-panel{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:6px 0}
+.filter-panel-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border-light)}
+.filter-panel-head h4{font-size:12px;font-weight:800;color:var(--navy);letter-spacing:-0.01em}
+.filter-reset{background:none;border:none;font-size:10.5px;font-weight:700;color:var(--cobalt);cursor:pointer;padding:2px 6px;border-radius:3px}
+.filter-reset:hover{background:var(--cobalt-bg)}
+
+.filter-section{padding:10px 14px;border-bottom:1px solid var(--border-light)}
+.filter-section:last-child{border-bottom:none}
+.filter-section-h{font-size:10.5px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.filter-section-h .fsh-cnt{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0}
+
+.fpc{display:flex;flex-wrap:wrap;gap:4px}
+.fp-chip{font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--text-sub);background:#fff;font-weight:600;transition:all .1s;user-select:none}
+.fp-chip:hover{border-color:var(--cobalt);color:var(--cobalt)}
+.fp-chip.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.fp-chip.disabled{opacity:0.4;cursor:default;color:var(--text-muted);background:var(--gray-50)}
+.fp-chip.disabled:hover{border-color:var(--border);color:var(--text-muted)}
+.fp-chip .fp-chip-cnt{font-size:9.5px;font-weight:700;margin-left:3px;opacity:0.75}
+
+/* ===== RULE ACCORDION ===== */
+.rule-acc{border-top:1px solid var(--border-light);margin-top:6px}
+.rule-acc:first-of-type{border-top:none;margin-top:0}
+.rule-acc-head{display:flex;justify-content:space-between;align-items:center;padding:6px 0;cursor:pointer;user-select:none}
+.rule-acc-head:hover{color:var(--cobalt)}
+.rule-acc-title{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--text)}
+.rule-acc-title .rac-arr{font-size:10px;color:var(--text-muted);transition:transform .12s}
+.rule-acc.open .rule-acc-title .rac-arr{transform:rotate(90deg)}
+.rule-acc-cnt{font-size:10px;font-weight:700;color:var(--text-muted);background:var(--gray-100);padding:1px 6px;border-radius:3px;font-variant-numeric:tabular-nums}
+.rule-acc-body{display:none;padding:2px 0 6px 8px}
+.rule-acc.open .rule-acc-body{display:block}
+.rule-item{display:flex;justify-content:space-between;align-items:center;padding:3px 6px;border-radius:3px;cursor:pointer;font-size:11px;color:var(--text-sub);user-select:none}
+.rule-item:hover{background:var(--gray-50);color:var(--cobalt)}
+.rule-item.active{background:var(--cobalt-bg);color:var(--cobalt);font-weight:700}
+.rule-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rule-item-id{font-family:var(--mono);font-size:9.5px;color:var(--text-muted);background:var(--white);padding:0 4px;border-radius:2px;border:1px solid var(--border-light);margin-right:4px}
+.rule-item.active .rule-item-id{border-color:var(--cobalt);color:var(--cobalt)}
+.rule-item-cnt{font-size:10px;font-weight:700;color:var(--text-muted);font-variant-numeric:tabular-nums;min-width:18px;text-align:right}
+.rac-toggle-all{font-size:9.5px;font-weight:700;color:var(--cobalt);cursor:pointer;background:none;border:none;padding:0 2px}
+
+/* ===== DISTRICT GRID — 25개 ===== */
+.district-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
+.district-grid .fp-chip{padding:3px 4px;text-align:center;font-size:10.5px;justify-content:center;display:flex;gap:0}
+.district-grid .fp-chip .fp-chip-cnt{font-size:9px;margin-left:2px}
+.district-summary{font-size:10px;color:var(--text-muted);font-weight:600;margin-top:6px;line-height:1.4}
+
+/* ===== ACTIVE CHIPS (선택된 필터 표시) ===== */
+.active-chips-wrap{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;min-height:22px}
+.active-chips-wrap .ach-label{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em}
+.active-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;background:var(--cobalt-bg);color:var(--cobalt);padding:2px 4px 2px 8px;border-radius:11px;border:1px solid #BFDBFE}
+.active-chip .ach-x{background:none;border:none;color:var(--cobalt);cursor:pointer;font-size:13px;padding:0 4px;line-height:1;font-weight:600}
+.active-chip .ach-x:hover{color:var(--red)}
+
+/* ===== LIST TOOLBAR (결과 수 + 정렬) ===== */
+.list-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+.list-toolbar .lt-count{font-size:12px;color:var(--text-sub);font-weight:700}
+.list-toolbar .lt-count b{color:var(--cobalt);font-weight:800;font-variant-numeric:tabular-nums}
+.list-toolbar .lt-sort{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);font-weight:700}
+.sort-select{padding:5px 9px;border:1px solid var(--border);border-radius:5px;background:#fff;font:11.5px var(--font);color:var(--text);font-weight:600;cursor:pointer;outline:none}
+.sort-select:focus{border-color:var(--cobalt)}
+
+/* ===== INDEX BADGE / SCORE PILL ===== */
+.idx-pill{display:inline-flex;align-items:baseline;gap:3px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums}
+.idx-pill .idx-unit{font-size:9.5px;color:var(--text-muted);font-weight:700}
+
+/* ===== SCHOOL SUMMARY GRID (상세 6박스 재구성) ===== */
+.sd-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}
+.sd-summary-card{padding:12px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius-sm);text-align:center}
+.sd-summary-card.lead{border:2px solid var(--cobalt);background:linear-gradient(180deg,#fff 0%,var(--cobalt-bg) 100%)}
+.sd-summary-card .sdc-num{font-size:20px;font-weight:900;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.1}
+.sd-summary-card.lead .sdc-num{color:var(--cobalt);font-size:24px}
+.sd-summary-card .sdc-num small{font-size:10px;color:var(--text-muted);font-weight:700;margin-left:2px}
+.sd-summary-card .sdc-label{font-size:9.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-top:3px;font-weight:700}
+.sd-summary-card .sdc-detail{font-size:10.5px;color:var(--text-sub);margin-top:3px;line-height:1.4}
+
+/* ===== AI 보조 요약 라벨 ===== */
+.ai-summary-wrap{margin-bottom:14px}
+.ai-summary-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.ai-summary-head .ai-tag-sm{display:inline-flex;align-items:center;background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:0.3px}
+.ai-summary-head h4{font-size:12px;font-weight:800;color:var(--navy);letter-spacing:-0.01em}
+.ai-summary-disclaim{font-size:10.5px;color:var(--text-muted);font-weight:600;margin-left:auto}
+.ai-summary{background:var(--cobalt-bg);border:1px solid #BFDBFE;border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--blue-text);line-height:1.6}
+.ai-summary-foot{font-size:10.5px;color:var(--text-muted);margin-top:5px;font-style:italic;line-height:1.5}
+
+/* ===== EVIDENCE CARD (룰 단위) ===== */
+.ev-section{margin-bottom:18px}
+.ev-section-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:var(--navy);margin:14px 0 8px}
+.ev-section-h .evs-code{font-family:var(--mono);font-size:9.5px;color:var(--cobalt);background:var(--cobalt-bg);padding:1px 6px;border-radius:3px;font-weight:700}
+.ev-section-h .evs-cnt{font-size:10px;font-weight:700;color:var(--text-muted)}
+
+.ev-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px 12px;margin-bottom:8px}
+.ev-card.priority{border-left:3px solid var(--cobalt)}
+.ev-card.normal{border-left:3px solid #94A3B8}
+.ev-card.ref{border-left:3px solid var(--border)}
+.ev-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.ev-card-head .ev-name{font-size:13.5px;font-weight:800;color:var(--text);letter-spacing:-0.01em;line-height:1.35}
+.ev-card-head .ev-name .ev-rid{font-family:var(--mono);font-size:10px;color:var(--cobalt);background:var(--cobalt-bg);padding:1px 6px;border-radius:3px;font-weight:700;margin-left:6px;vertical-align:middle}
+.ev-card-head .ev-meta{display:flex;gap:5px;align-items:center;flex-shrink:0}
+.ev-meta .ev-year{font-size:10.5px;font-weight:700;color:var(--text-sub);background:var(--gray-100);padding:2px 7px;border-radius:3px}
+.ev-meta .ev-repeat{font-size:9px;font-weight:800;color:var(--navy);border:1px solid var(--navy);padding:1px 5px;border-radius:3px;background:var(--white)}
+.ev-detail{font-size:12px;color:var(--text-sub);background:var(--gray-50);padding:7px 10px;border-radius:5px;line-height:1.55;margin-bottom:6px;border-left:2px solid var(--border)}
+.ev-ai{padding:7px 0 4px;border-top:1px dashed var(--border-light);margin-top:6px;font-size:11.5px;line-height:1.6}
+.ev-ai-row{margin-bottom:3px;display:flex;gap:4px}
+.ev-ai-lb{font-weight:800;color:var(--navy);font-size:10.5px;min-width:62px;flex-shrink:0;line-height:1.5}
+.ev-ai-vl{color:var(--text-sub);flex:1}
+.ev-fold{font-size:10.5px;color:var(--cobalt);cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;padding:5px 0 2px;user-select:none}
+.ev-fold::before{content:'▸';font-size:9px;transition:transform .12s}
+.ev-card.open .ev-fold::before{transform:rotate(90deg)}
+.ev-fold-body{display:none;padding-top:6px}
+.ev-card.open .ev-fold-body{display:block}
+
+/* ===== CHART CAPTION (왜 잡혔는지 한 줄) ===== */
+.chart-caption{font-size:11px;color:var(--text-sub);font-style:italic;margin-top:4px;padding:6px 10px;background:var(--gray-50);border-radius:4px;line-height:1.5}
+
+/* ===== EXPLORER VIEW (고급 탐색) ===== */
+.explorer-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:flex-start;margin-top:12px}
+.explorer-config{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:6px 0;position:sticky;top:74px}
+.explorer-results-area{min-width:0}
+.exp-section{padding:10px 14px;border-bottom:1px solid var(--border-light)}
+.exp-section:last-child{border-bottom:none}
+.exp-section-h{font-size:10.5px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}
+.exp-input-row{display:flex;gap:6px}
+.exp-input-row input{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font:12px var(--font);outline:none;background:var(--gray-50)}
+.exp-input-row input:focus{border-color:var(--cobalt);background:#fff}
+.exp-input-row button{padding:7px 14px;background:var(--navy);color:#fff;border:none;border-radius:var(--radius-sm);font:12px/1 var(--font);font-weight:700;cursor:pointer}
+.exp-input-row button:hover{background:var(--cobalt)}
+.exp-results-empty{padding:36px;text-align:center;color:var(--text-muted);font-size:12px;background:var(--white);border:1px dashed var(--border);border-radius:var(--radius)}
+
+/* school detail explorer link (school 화면에서 explorer로 안내) */
+.exp-link-box{background:var(--gray-50);border:1px dashed var(--border);border-radius:var(--radius-sm);padding:11px 14px;margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.exp-link-box .elb-text{font-size:12px;color:var(--text-sub);line-height:1.5}
+.exp-link-box .elb-text b{color:var(--navy)}
+.exp-link-box a{font-size:12px;color:var(--cobalt);font-weight:800;text-decoration:none;white-space:nowrap}
+.exp-link-box a:hover{text-decoration:underline}
+
+/* legacy support — show old filter row hidden in new layout */
+.dash-grid .filter-row{display:none}
+
 /* ===== RESPONSIVE ===== */
+@media(max-width:1180px){
+  .dash-grid{grid-template-columns:220px 1fr}
+  .dash-grid .stats-panel{grid-column:1/-1;position:static;max-height:none;overflow:visible;display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-top:14px}
+  .sd-summary-grid{grid-template-columns:repeat(3,1fr)}
+}
 @media(max-width:1024px){
   .top3-grid{grid-template-columns:1fr 1fr}
   .charts-row{grid-template-columns:1fr}
   .two-col{grid-template-columns:1fr}
   .region-grid{grid-template-columns:repeat(3,1fr)}
   .region-card.active{grid-column:span 3}
+  .dash-grid{grid-template-columns:1fr}
+  .dash-grid .filter-panel,.dash-grid .stats-panel{position:static;max-height:none;overflow:visible}
+  .dash-grid .stats-panel{grid-template-columns:1fr;display:block}
+  .explorer-grid{grid-template-columns:1fr}
+  .explorer-config{position:static}
+  .sd-summary-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:768px){
   .nav-inner{padding:0 14px;gap:10px;height:auto;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}
@@ -493,7 +652,9 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
   main{padding:16px 14px 24px}
   .top3-grid{grid-template-columns:1fr}
   .summary-row{grid-template-columns:1fr}
+  .sd-summary-grid{grid-template-columns:1fr 1fr}
   .chat-panel{width:calc(100vw - 16px);right:8px;bottom:8px}
   .region-grid{grid-template-columns:repeat(2,1fr)}
   .region-card.active{grid-column:span 2}
+  .district-grid{grid-template-columns:repeat(4,1fr)}
 }
