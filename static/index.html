@@ -23,6 +23,7 @@
     <nav class="nav-tabs">
       <a class="nav-tab active" data-view="dashboard" href="#">대시보드</a>
       <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
+      <a class="nav-tab" data-view="advanced" href="#">고도화 미리보기</a>
     </nav>
     <div class="nav-right">
       <input type="text" id="nav-search" class="nav-search" placeholder="학교명 검색…">
@@ -114,6 +115,129 @@
     <!-- 분석 아카이브 -->
     <div class="section-title archive-title" id="archive-title" style="display:none">내 분석 아카이브</div>
     <div id="custom-results"></div>
+  </section>
+
+  <!-- ===== ADVANCED PREVIEW (제안 2 + 제안 4) ===== -->
+  <section id="view-advanced" class="view">
+    <div class="page-title">
+      <h1>고도화 미리보기</h1>
+      <span class="updated">제안 2 LLM 자동 규칙 생성기 · 제안 4 이상 전파 추적 · <b>예시 데이터 (실제 공시 분석 결과 아님)</b></span>
+    </div>
+
+    <div class="adv-banner">
+      <div class="adv-banner-icon">⚠</div>
+      <div>
+        <div class="adv-banner-title">이 화면은 향후 기능의 시연용 미리보기입니다.</div>
+        <div class="adv-banner-sub">표시되는 수치·학교명·탐지는 <b>실제 공시 데이터 분석 결과가 아니며</b>, 룰셋 정의서·시나리오 카드의 예시를 그대로 옮긴 것입니다. 본 도구의 실제 검토 후보는 <a href="#" data-view="dashboard" id="adv-back">대시보드</a>에서 확인하세요.</div>
+      </div>
+    </div>
+
+    <!-- SUB TABS -->
+    <div class="adv-subtabs">
+      <button class="adv-subtab active" data-sub="p2">제안 2 · LLM 자동 규칙 생성기</button>
+      <button class="adv-subtab" data-sub="p4">제안 4 · 이상 전파 추적</button>
+    </div>
+
+    <!-- ===== 제안 2 ===== -->
+    <div id="adv-p2" class="adv-page active">
+      <div class="adv-card">
+        <h2 class="adv-h2">LLM 자동 규칙 생성기</h2>
+        <p class="adv-lead">현재 검증 규칙(룰셋)은 사람이 매뉴얼을 읽고 Python을 직접 작성합니다. 이 기능은 담당자가 <b>자연어로 질문</b>하면 LLM이 검증 규칙을 자동 생성하고, 샌드박스에서 실행하여 결과까지 보여줍니다.</p>
+
+        <div class="adv-cmp">
+          <div class="adv-cmp-old">
+            <div class="adv-cmp-h">현재: 수동 BR 진단</div>
+            <div class="adv-pipe">
+              <span class="adv-pipe-step">법규 읽기</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step">자연어 정의</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step">SQL 3개 작성</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step">수동 실행</span>
+            </div>
+            <div class="adv-cmp-note bad">소요: 수일, 3명 협업, 대부분 용역 외주</div>
+          </div>
+          <div class="adv-cmp-new">
+            <div class="adv-cmp-h">제안: LLM 자동 생성</div>
+            <div class="adv-pipe">
+              <span class="adv-pipe-step">자연어 입력</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step ai-step"><span class="ai-tag">AI</span> Rule Card</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step">샌드박스</span><span class="adv-pipe-arr">→</span>
+              <span class="adv-pipe-step">채택/수정</span>
+            </div>
+            <div class="adv-cmp-note good">소요: 수 분, 1명, 도구 내장</div>
+          </div>
+        </div>
+
+        <div class="adv-info">학술 근거: <b>LLM-DQR</b>(Journal of Biomedical Informatics, 2025) — LLM 기반 DQ 규칙 자동 생성이 수동 전문가 대비 더 높은 커버리지를 달성. 3단계: 표준화 입력 → CoT 프롬프트 → 폐쇄 루프 검증(샌드박스 + 반복 디버깅).</div>
+      </div>
+
+      <div class="adv-card">
+        <h2 class="adv-h2">체험해 보기 <span class="adv-h-sub">예시 데이터 기반</span></h2>
+        <div class="adv-input">
+          <textarea id="adv-rule-input" rows="2" placeholder="예: 사립학교인데 학교회계 세입이 30% 넘게 줄었으면 확인해야 하지 않나?">사립학교인데 학교회계 세입이 30% 넘게 줄었으면 확인해야 하지 않나?</textarea>
+        </div>
+        <div class="adv-flex">
+          <button class="adv-btn primary" onclick="advGenRule()">규칙 생성</button>
+          <button class="adv-btn ghost sm" onclick="advLoadExample(1)">예시: 사립 세입</button>
+          <button class="adv-btn ghost sm" onclick="advLoadExample(2)">예시: 학폭+교원</button>
+          <button class="adv-btn ghost sm" onclick="advLoadExample(3)">예시: 급식 단가</button>
+        </div>
+        <div id="adv-gen-area"></div>
+      </div>
+
+      <div class="adv-card">
+        <h2 class="adv-h2">구현 기획</h2>
+        <div class="adv-step"><div class="adv-step-n">1</div><div class="adv-step-c"><b>입력 전처리</b> — DB 스키마(컬럼명+타입) + 자연어 질문 + 샘플 데이터 5행을 LLM 프롬프트에 포함</div></div>
+        <div class="adv-step"><div class="adv-step-n ai-step"><span class="ai-tag">AI</span></div><div class="adv-step-c"><b>Rule Card 생성</b> — Chain-of-Thought 프롬프트로 LLM이 규칙명·대상 컬럼·조건·Python 코드·유사 기존 룰·추천 ★를 JSON으로 출력</div></div>
+        <div class="adv-step"><div class="adv-step-n">3</div><div class="adv-step-c"><b>샌드박스 실행</b> — <code class="adv-code">safe_executor.py</code>로 생성된 코드를 실행 (화이트리스트 + 5초 타임아웃 + df 읽기 전용)</div></div>
+        <div class="adv-step"><div class="adv-step-n">4</div><div class="adv-step-c"><b>결과 표시 + 검증</b> — 탐지 건수, 탐지 학교 목록, 기존 룰과 중복 여부를 자동 확인</div></div>
+        <div class="adv-step"><div class="adv-step-n">5</div><div class="adv-step-c"><b>채택/수정/폐기</b> — 담당자가 결과를 확인하고 룰셋에 저장하거나 조건을 수정</div></div>
+      </div>
+    </div>
+
+    <!-- ===== 제안 4 ===== -->
+    <div id="adv-p4" class="adv-page">
+      <div class="adv-card">
+        <h2 class="adv-h2">이상 전파 추적</h2>
+        <p class="adv-lead">하나의 입력 값이 잘못되면, 파생 지표와 연쇄 룰이 동시에 탐지됩니다. 이 기능은 <b>원인 값 하나</b>를 꼬집어 "이것 때문에 나머지가 걸린 것입니다"라고 안내하고, 원인을 확인하면 전파된 탐지가 일괄 해소됩니다.</p>
+
+        <div class="adv-km"><b>왜 필요한가</b><p>담당자가 "왜 갑자기 3건이나 나오지?"라는 혼란을 겪을 때, 3건이 사실은 <strong>같은 원인에서 파생된 것</strong>임을 보여줍니다. 원인 1개만 확인하면 나머지가 자동 해소되어 검토 부담이 대폭 줄어듭니다.</p></div>
+
+        <div class="adv-info">산업 근거: 1,000+ 데이터 파이프라인 분석 결과 <b>72%의 DQ 이슈가 비즈니스에 영향을 미친 후 발견</b>(Datachecks 2024). 마이크로서비스 오류 전파 추적 특허(US 11,010,235)에서 "원인 → 전파 체인 → 영향 범위" 시각화 접근을 차용.</div>
+
+        <h3 class="adv-h3">교육 데이터의 의존성 그래프</h3>
+        <p class="adv-note">아래는 우리 룰셋에서 컬럼 간 의존 관계를 정리한 것입니다. 하나의 값이 잘못되면 화살표 방향으로 전파됩니다.</p>
+        <div class="adv-dep-graph">
+          <div class="adv-dep-row"><div class="adv-dep-src">학생수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">학급당학생수, 교원1인당학생수, 학생수변동률, C1-1, C1-3, C1-8, B1-1, C5-1</div></div>
+          <div class="adv-dep-row"><div class="adv-dep-src">학급수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">학급당학생수, 학급수변동률, C1-1, C1-2, C1-8, D2-2</div></div>
+          <div class="adv-dep-row"><div class="adv-dep-src">교원수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">교원1인당학생수, 교원수변동률, C1-3, B1-1, F1'-1</div></div>
+          <div class="adv-dep-row"><div class="adv-dep-src">급식비총액</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">1인당급식비, 급식비변동률, C2-3, C2-3+, D2-2</div></div>
+          <div class="adv-dep-row"><div class="adv-dep-src">학폭심의건수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">B1-6, C3-3A/B (피해학생수 경유)</div></div>
+          <div class="adv-dep-row"><div class="adv-dep-src">학급당학생수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">C1-8, D2-2 (파생값이 2개 룰에 영향)</div></div>
+        </div>
+        <p class="adv-foot-note">* 한 컬럼이 잘못되면 화살표 끝의 모든 지표/룰이 연쇄 영향을 받음</p>
+      </div>
+
+      <div class="adv-card">
+        <h2 class="adv-h2">체험해 보기 <span class="adv-h-sub">예시 시나리오</span></h2>
+        <div class="adv-flex" style="margin-bottom:14px">
+          <select id="adv-scenario-select" class="adv-select" onchange="advLoadScenario()">
+            <option value="1">시나리오 1: 학급수 파싱 오류 ("28(3)" → 3으로 잘못 추출)</option>
+            <option value="2">시나리오 2: 급식비 입력단위 혼동 (천원 → 원)</option>
+            <option value="3">시나리오 3: 교원수 강사 포함 오류</option>
+          </select>
+        </div>
+        <div id="adv-scenario-area"></div>
+      </div>
+
+      <div class="adv-card">
+        <h2 class="adv-h2">구현 기획</h2>
+        <div class="adv-step"><div class="adv-step-n">1</div><div class="adv-step-c"><b>의존성 그래프 구축</b> — 룰 엔진의 각 룰이 어떤 컬럼을 입력받는지 매핑. 파생 컬럼(학급당학생수 = 학생수/학급수)의 원본 컬럼 추적</div></div>
+        <div class="adv-step"><div class="adv-step-n">2</div><div class="adv-step-c"><b>탐지 결과 역추적</b> — 동일 학교에서 여러 룰이 동시 탐지되면, 공통 원인 컬럼을 BFS(너비 우선 탐색)로 탐색</div></div>
+        <div class="adv-step"><div class="adv-step-n ai-step"><span class="ai-tag">AI</span></div><div class="adv-step-c"><b>원인 설명 생성</b> — LLM이 전파 경로를 자연어로 요약. "학급수 하나 때문에 3개 룰이 연쇄 탐지되었습니다"</div></div>
+        <div class="adv-step"><div class="adv-step-n">4</div><div class="adv-step-c"><b>일괄 해소 기능</b> — 원인 노드 "정상 확인" 클릭 시, 해당 노드에 의존하는 모든 하위 탐지를 자동으로 "정상 처리". 우선순위 점수도 재계산</div></div>
+        <div class="adv-step"><div class="adv-step-n">5</div><div class="adv-step-c"><b>우선 확인 순서 안내</b> — 가장 많은 하위 탐지에 영향을 미치는 원인 노드를 1순위로 표시</div></div>
+      </div>
+    </div>
   </section>
 
 </main>

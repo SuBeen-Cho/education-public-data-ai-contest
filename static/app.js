@@ -19,8 +19,12 @@ function bindNav() {
   document.querySelector('[data-view="dashboard"]').onclick = (e) => { e.preventDefault(); showView('dashboard'); };
   const ns = document.getElementById('nav-school');
   ns.onclick = (e) => { e.preventDefault(); if (currentSchoolCode) showView('school'); };
+  document.querySelector('[data-view="advanced"]').onclick = (e) => { e.preventDefault(); showView('advanced'); initAdvanced(); };
   document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); };
   document.getElementById('nav-search').addEventListener('input', filterSchoolList);
+  // advanced 내 "대시보드" 링크
+  const advBack = document.getElementById('adv-back');
+  if (advBack) advBack.onclick = (e) => { e.preventDefault(); showView('dashboard'); };
 }
 
 function showView(view) {
@@ -568,3 +572,256 @@ async function sendChat(text) {
   }
   document.getElementById('chat-send').disabled = false;
 }
+
+// ===== ADVANCED PREVIEW (제안 2 LLM 자동 규칙 생성기 + 제안 4 이상 전파 추적) =====
+// ※ 정적 예시 화면. 모든 학교명·수치는 룰셋 정의서/시나리오 카드의 예시.
+//   실제 공시 데이터 분석 결과가 아님. 라벨로 명시.
+
+let advInitDone = false;
+function initAdvanced() {
+  if (advInitDone) return;
+  // 서브탭 바인딩
+  document.querySelectorAll('.adv-subtab').forEach(btn => {
+    btn.onclick = () => {
+      const sub = btn.dataset.sub;
+      document.querySelectorAll('.adv-subtab').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.adv-page').forEach(p => p.classList.toggle('active', p.id === 'adv-' + sub));
+    };
+  });
+  advLoadScenario(); // 시나리오 1 초기 렌더
+  advInitDone = true;
+}
+
+// ── 제안 2: 예시 입력별 Rule Card 데이터 (정적) ──
+const ADV_RULE_EXAMPLES = {
+  1: {
+    input: "사립학교인데 학교회계 세입이 30% 넘게 줄었으면 확인해야 하지 않나?",
+    name: "사립학교 학교회계 세입 급감",
+    cols: "school_type, budget_revenue, year",
+    cond: "school_type='사립' AND 세입 전년대비 ≤ -30%",
+    code: `df_priv = df[df['school_type'] == '사립']
+df_priv = df_priv.sort_values(['school_code','year'])
+df_priv['rev_yoy'] = df_priv.groupby('school_code')['budget_revenue'].pct_change() * 100
+result = df_priv[df_priv['rev_yoy'] <= -30]`,
+    similar: "B1-3 (±30%), B1-4 (±50%)",
+    star: 2,
+    results: [
+      { s: "영락고", v: "-49.9%", y: 2024 },
+      { s: "풍문고", v: "-44.4%", y: 2024 },
+    ],
+  },
+  2: {
+    input: "학폭이 늘었는데 교원수도 같이 줄어든 학교 있어?",
+    name: "학폭 증가 + 교원 감소 동시",
+    cols: "bullying_cases, teacher_count, year",
+    cond: "학폭 전년대비 +50% AND 교원수 -5%",
+    code: `df_s = df.sort_values(['school_code','year'])
+df_s['b_yoy'] = df_s.groupby('school_code')['bullying_cases'].pct_change()*100
+df_s['t_yoy'] = df_s.groupby('school_code')['teacher_count'].pct_change()*100
+result = df_s[(df_s['b_yoy']>=50) & (df_s['t_yoy']<=-5)]`,
+    similar: "MC-1 (학교 분위기 악화 종합 신호)",
+    star: 3,
+    results: [
+      { s: "서라벌고", v: "학폭 +200%, 교원 -8.2%", y: 2025 },
+      { s: "노원고", v: "학폭 +100%, 교원 -7.4%", y: 2024 },
+    ],
+  },
+  3: {
+    input: "급식비 1인당 단가가 유사학교 평균의 절반 이하인 학교",
+    name: "급식비 1인당 유사학교 대비 극저",
+    cols: "meal_cost_per_student, district, year",
+    cond: "급식비 1인당 < 같은 구 평균의 50%",
+    code: `df['peer_avg'] = df.groupby(['district','year'])['meal_cost_per_student'].transform('mean')
+result = df[df['meal_cost_per_student'] < df['peer_avg'] * 0.5]`,
+    similar: "D2-2 (IQR 극단값)",
+    star: 3,
+    results: [
+      { s: "은광여고", v: "1인당 3,200원 (평균 6,500원의 49%)", y: 2023 },
+    ],
+  },
+};
+
+function advLoadExample(n) {
+  document.getElementById('adv-rule-input').value = ADV_RULE_EXAMPLES[n].input;
+  document.getElementById('adv-gen-area').innerHTML = '';
+}
+
+function advGenRule() {
+  const v = document.getElementById('adv-rule-input').value.trim();
+  let ex = ADV_RULE_EXAMPLES[1];
+  for (const k in ADV_RULE_EXAMPLES) {
+    if (ADV_RULE_EXAMPLES[k].input === v) { ex = ADV_RULE_EXAMPLES[k]; break; }
+  }
+  const area = document.getElementById('adv-gen-area');
+  area.innerHTML = '<div class="adv-loading"><span class="ai-tag">AI 분석 중…</span><p>LLM이 자연어를 분석하여 Rule Card를 생성합니다 (예시 시연)</p></div>';
+  setTimeout(() => {
+    const stars = '★'.repeat(ex.star);
+    area.innerHTML = `
+      <div class="adv-rule-card">
+        <div class="adv-rule-head">
+          <div><span class="ai-tag">AI 생성</span> <b>Rule Card</b></div>
+          <span class="adv-stars">${stars}</span>
+        </div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">규칙명</div><div class="adv-rule-vl strong">${ex.name}</div></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">대상 컬럼</div><div class="adv-rule-vl">${ex.cols}</div></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">조건</div><div class="adv-rule-vl">${ex.cond}</div></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">생성된 Python 코드</div><pre class="adv-code-block">${ex.code}</pre></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">유사 기존 룰</div><div class="adv-rule-vl">${ex.similar}</div></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">추천 등급</div><div class="adv-rule-vl"><span class="adv-stars">${stars}</span></div></div>
+      </div>
+      <div class="adv-warn">샌드박스 실행 중… <code class="adv-code">safe_executor.py</code>: 화이트리스트 + 5초 타임아웃 + df 읽기 전용</div>
+      <div class="adv-res">
+        <div class="adv-res-head">실행 결과: ${ex.results.length}건 탐지</div>
+        ${ex.results.map(r => `<div class="adv-res-row"><b>${r.s}</b> (${r.y}): ${r.v}</div>`).join('')}
+      </div>
+      <div class="adv-flex" style="margin-top:14px">
+        <button class="adv-btn ok" onclick="advNotify('규칙이 룰셋에 추가되었습니다 (예시 시연)')">채택</button>
+        <button class="adv-btn ghost" onclick="advNotify('조건 수정 화면 (예시 시연)')">수정</button>
+        <button class="adv-btn danger sm" onclick="document.getElementById('adv-gen-area').innerHTML=''">폐기</button>
+      </div>`;
+  }, 700);
+}
+
+// ── 제안 4: 시나리오 데이터 (정적) ──
+const ADV_SCENARIOS = {
+  1: {
+    title: "학급수 파싱 오류",
+    sub: '"28(3)" 형태에서 28이 아닌 3을 추출',
+    root: { l: "학급수", v: "3", a: "28", d: "괄호 안 특수학급수(3)를 총 학급수로 잘못 추출" },
+    l1: [
+      { l: "학급당학생수", v: "234.7명/학급", a: "25.1명/학급", f: "704 / 3 = 234.7" },
+      { l: "학급수 변동률", v: "-89.3%", a: "+3.6%", f: "(3-28)/28 = -89.3%" },
+    ],
+    l2: [
+      { r: "C1-8", n: "학급당학생수 급변", s: 3, d: "+209.6명/학급 (임계 1.5)" },
+      { r: "D2-2", n: "학급당학생수 IQR 극단", s: 3, d: "234.7 (범위: 18~30)" },
+      { r: "C1-1", n: "학생↔학급 역방향", s: 3, d: "학생 -1.7% / 학급 -89.3%" },
+    ],
+    imp: "우선순위 점수 15점 — 우선 검토 대상 상위 진입",
+    fix: "학급수 원본값 '28(3)'의 파싱 정확성을 확인해 주세요. 괄호 앞 숫자(28)가 총 학급수입니다.",
+    detail: [
+      { l: "학생수", v: "704명", s: "정상" },
+      { l: "학급수(파싱)", v: "3", s: "검토 필요 (실제 28)" },
+      { l: "학급당학생수", v: "234.7", s: "부풀림 (실제 25.1)" },
+      { l: "학급수 YoY", v: "-89.3%", s: "부풀림 (실제 +3.6%)" },
+      { l: "우선순위 점수", v: "15점", s: "부풀림 (실제 ~6점)" },
+    ],
+  },
+  2: {
+    title: "급식비 입력단위 혼동",
+    sub: "천원 단위를 원 단위로 입력 (1,000배 차이)",
+    root: { l: "급식비 총액", v: "3,692,063,000원", a: "3,692,063천원", d: "천원 단위를 원 단위로 입력" },
+    l1: [
+      { l: "급식비 변동률", v: "+99,900%", a: "+2.3%", f: "(3.69B - 3.69M) / 3.69M" },
+      { l: "1인당 급식비", v: "4,989,274원", a: "4,989원", f: "3.69B / 740명" },
+    ],
+    l2: [
+      { r: "C2-3+", n: "급식비 강한 변동", s: 3, d: "+99,900% (학생수 +4.7%)" },
+      { r: "D2-2", n: "1인당급식비 IQR 극단", s: 3, d: "4,989,274원 (범위: 3,000~8,000)" },
+    ],
+    imp: "우선순위 점수 13점 — 상위 30% 진입",
+    fix: "급식비 입력단위가 '천원'인지 확인해 주세요 (매뉴얼 p39 Q1).",
+    detail: [
+      { l: "학생수", v: "740명", s: "정상" },
+      { l: "급식비 총액", v: "3,692,063,000원", s: "검토 필요 (실제 3,692,063천원)" },
+      { l: "급식비 YoY", v: "+99,900%", s: "부풀림 (실제 +2.3%)" },
+      { l: "1인당 급식비", v: "4,989,274원", s: "부풀림 (실제 4,989원)" },
+      { l: "우선순위 점수", v: "13점", s: "부풀림" },
+    ],
+  },
+  3: {
+    title: "교원수 강사 포함 오류",
+    sub: "학교알리미 교원 총계(강사 포함)를 KESS 비교에 사용",
+    root: { l: "교원수 비교 기준", v: "강사 포함 82명", a: "강사 제외 72명", d: "학교알리미 총계에 강사(10명) 포함, KESS는 미포함" },
+    l1: [
+      { l: "교원수 교차 차이", v: "10명 불일치", a: "0명 (보정 후)", f: "82 - 72 = 10" },
+      { l: "교원수 변동률", v: "+14.3%", a: "+2.8%", f: "강사 포함으로 과대 산출" },
+    ],
+    l2: [
+      { r: "F1'-1", n: "교원수 교차 불일치", s: 2, d: "학교알리미 82 vs KESS 72 (차이 10)" },
+      { r: "B1-1", n: "교원수 급변동", s: 2, d: "교원수 +14.3% (임계 10%)" },
+      { r: "C1-3", n: "학생↔교원 불균형", s: 2, d: "학생 +1.2% / 교원 +14.3%" },
+    ],
+    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 점수 부풀림",
+    fix: "교원수 비교 시 강사를 제외해 주세요 (학교알리미 총계 - 강사(계) = KESS 비교용).",
+    detail: [
+      { l: "학교알리미 교원총계", v: "82명(강사 10명 포함)", s: "정의 차이" },
+      { l: "KESS 교원수", v: "72명(강사 미포함)", s: "정상" },
+      { l: "교차 차이", v: "10명", s: "검토 필요 (보정 후 0)" },
+      { l: "교원수 YoY", v: "+14.3%", s: "과대 (실제 +2.8%)" },
+      { l: "탐지 영역", v: "3개 (F1+B1+C1)", s: "과대 (실제 0~1개)" },
+    ],
+  },
+};
+
+function advLoadScenario() {
+  const sel = document.getElementById('adv-scenario-select');
+  if (!sel) return;
+  const n = sel.value;
+  const s = ADV_SCENARIOS[n];
+  const area = document.getElementById('adv-scenario-area');
+  area.innerHTML = `
+    <div class="adv-prop">
+      <div class="adv-prop-head">
+        <div>
+          <b class="adv-prop-title">${s.title}</b>
+          <p class="adv-prop-sub">${s.sub}</p>
+        </div>
+        <button class="adv-btn ok sm" id="adv-resolve-btn" onclick="advResolve()">원인 정상 확인 → 일괄 해소</button>
+      </div>
+
+      <div class="adv-scenario-detail">
+        <h4>수치 상세</h4>
+        ${s.detail.map(d => `<div class="adv-metric"><span class="adv-metric-lb">${d.l}</span><span class="adv-metric-vl">${d.v} <span class="adv-metric-st">(${d.s})</span></span></div>`).join('')}
+      </div>
+
+      <div class="adv-stage-h adv-stage-root">원인 노드</div>
+      <div class="adv-node n-root" id="adv-root-node">${s.root.l}: ${s.root.v} <span class="adv-node-real">(실제: ${s.root.a})</span></div>
+      <div class="adv-node-desc">${s.root.d}</div>
+
+      <div class="adv-tree">
+        <div class="adv-stage-h adv-stage-l1">1차 전파 (파생 지표)</div>
+        ${s.l1.map(l => `
+          <div class="adv-tree-item adv-l1-item">
+            <div class="adv-node n-l1">${l.l}: ${l.v} <span class="adv-node-real">(실제: ${l.a})</span></div>
+            <div class="adv-node-desc">산출: ${l.f}</div>
+          </div>`).join('')}
+
+        <div class="adv-tree adv-tree-nested">
+          <div class="adv-stage-h adv-stage-l2">2차 전파 (거짓 탐지)</div>
+          ${s.l2.map(l => `
+            <div class="adv-tree-item adv-l2-item">
+              <div class="adv-node n-l2">${l.r} ${l.n} <span class="adv-det-tag dt${l.s}">${'★'.repeat(l.s)}</span></div>
+              <div class="adv-node-desc">${l.d} — <span class="adv-false">거짓 양성</span></div>
+            </div>`).join('')}
+
+          <div class="adv-tree adv-tree-nested">
+            <div class="adv-stage-h adv-stage-l3">3차 영향 (점수)</div>
+            <div class="adv-tree-item adv-imp-item">
+              <div class="adv-node n-imp">${s.imp}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-ai-box">
+        <div class="adv-ai-h"><span class="ai-tag">AI</span> <b>원인 분석 요약</b></div>
+        <p>${s.root.l} 1개 값이 ${s.l2.length}개 룰 탐지 + 우선순위 점수 상승으로 전파되었습니다.</p>
+        <p class="adv-ai-rec">권장: ${s.fix}</p>
+      </div>
+    </div>
+
+    <div class="adv-resolved" id="adv-resolved" style="display:none">
+      <h4>원인 확인 완료 — ${s.l2.length}건 일괄 해소</h4>
+      <p>"${s.root.l}" 값이 정상 확인되어 전파된 ${s.l2.length}개 탐지가 자동 해소되었습니다. 우선순위 점수가 재계산됩니다.</p>
+    </div>`;
+}
+
+function advResolve() {
+  document.querySelectorAll('.adv-l1-item .adv-node, .adv-l2-item .adv-node, .adv-imp-item .adv-node, #adv-root-node').forEach(n => n.classList.add('resolved'));
+  document.getElementById('adv-resolved').style.display = 'block';
+  const b = document.getElementById('adv-resolve-btn');
+  if (b) { b.disabled = true; b.textContent = '해소 완료'; b.classList.add('disabled'); }
+}
+
+function advNotify(msg) { showNotify(msg); }
