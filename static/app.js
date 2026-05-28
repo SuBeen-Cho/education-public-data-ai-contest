@@ -1,30 +1,83 @@
-// ===== EduData Watch v7 — Dashboard landing + floating chat =====
+// ===== EduData Watch v8 — National Level 0 + 검토 우선도 점수 시스템 =====
 const API = '';
 let currentSchoolCode = null;
 let chartMain = null, chartBully = null;
 let allSchools = [];
 let dashboardData = null;
+let dashLoaded = false;
 let activeFilters = { star: 'all', category: 'all', district: 'all' };
 let chatHistory = [];
-let chatContext = 'dashboard';
+let chatContext = 'national';
 
+// ===== REGIONS (17 시·도) =====
+const REGIONS = [
+  { code: 'seoul', name: '서울특별시', active: true },
+  { code: 'gyeonggi', name: '경기도', active: false },
+  { code: 'incheon', name: '인천광역시', active: false },
+  { code: 'gangwon', name: '강원특별자치도', active: false },
+  { code: 'chungbuk', name: '충청북도', active: false },
+  { code: 'chungnam', name: '충청남도', active: false },
+  { code: 'jeonbuk', name: '전라북도', active: false },
+  { code: 'jeonnam', name: '전라남도', active: false },
+  { code: 'gyeongbuk', name: '경상북도', active: false },
+  { code: 'gyeongnam', name: '경상남도', active: false },
+  { code: 'jeju', name: '제주특별자치도', active: false },
+  { code: 'daejeon', name: '대전광역시', active: false },
+  { code: 'daegu', name: '대구광역시', active: false },
+  { code: 'busan', name: '부산광역시', active: false },
+  { code: 'ulsan', name: '울산광역시', active: false },
+  { code: 'gwangju', name: '광주광역시', active: false },
+  { code: 'sejong', name: '세종특별자치시', active: false },
+];
+
+// ===== 초기화 =====
 (async () => {
   bindNav();
   bindChat();
-  await loadDashboard();
+  showView('national');
+  renderNational(null); // 즉시 렌더 (서울 카드 로딩 상태)
+
+  try {
+    const [dash, schools] = await Promise.all([
+      fetch(API + '/api/dashboard').then(r => r.json()),
+      fetch(API + '/api/schools').then(r => r.json()),
+    ]);
+    dashboardData = dash;
+    allSchools = schools;
+    dashLoaded = true;
+    renderNational(dash); // 실데이터로 서울 카드 업데이트
+    // 기간 라벨 미리 세팅
+    const db = dash.data_basis || {};
+    document.getElementById('nav-period').textContent = (db.year_range || '—') + ' 공시 기준';
+  } catch (e) {
+    console.error('초기 데이터 로드 실패', e);
+  }
 })();
+
+// ===== GRADE HELPERS =====
+function gradeLabel(maxStar) {
+  if (maxStar >= 3) return '우선 검토';
+  if (maxStar >= 2) return '일반 검토';
+  return '참고';
+}
+function gradeCls(maxStar) {
+  if (maxStar >= 3) return 'grade-priority';
+  if (maxStar >= 2) return 'grade-normal';
+  return 'grade-ref';
+}
 
 // ===== NAV =====
 function bindNav() {
-  document.querySelector('[data-view="dashboard"]').onclick = (e) => { e.preventDefault(); showView('dashboard'); };
+  document.querySelector('[data-view="national"]').onclick = (e) => { e.preventDefault(); showView('national'); };
+  document.querySelector('[data-view="dashboard"]').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
   const ns = document.getElementById('nav-school');
   ns.onclick = (e) => { e.preventDefault(); if (currentSchoolCode) showView('school'); };
   document.querySelector('[data-view="advanced"]').onclick = (e) => { e.preventDefault(); showView('advanced'); initAdvanced(); };
-  document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); };
+  document.getElementById('back-to-national').onclick = (e) => { e.preventDefault(); showView('national'); };
+  document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
   document.getElementById('nav-search').addEventListener('input', filterSchoolList);
-  // advanced 내 "대시보드" 링크
   const advBack = document.getElementById('adv-back');
-  if (advBack) advBack.onclick = (e) => { e.preventDefault(); showView('dashboard'); };
+  if (advBack) advBack.onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
 }
 
 function showView(view) {
@@ -36,8 +89,57 @@ function showView(view) {
   window.scrollTo(0, 0);
 }
 
+// ===== NATIONAL VIEW =====
+function renderNational(dash) {
+  const grid = document.getElementById('region-grid');
+  if (!grid) return;
+
+  const top1 = dash && dash.top3 && dash.top3[0];
+  const totalDetections = dash ? dash.total_detections : null;
+  const totalSchools = dash ? dash.total_schools : null;
+  const db = dash ? (dash.data_basis || {}) : {};
+
+  grid.innerHTML = REGIONS.map(r => {
+    if (r.active) {
+      return `
+        <div class="region-card active" onclick="goToRegion('${r.code}')">
+          <div class="region-card-inner">
+            <div class="region-name">${r.name}</div>
+            <div class="region-districts">노원·강남·관악구 고등학교</div>
+            <div class="region-stats">
+              <span class="rstat">${totalSchools != null ? totalSchools + '교' : '—'}</span>
+              <span class="rstat-sep">·</span>
+              <span class="rstat">검토 후보 ${totalDetections != null ? totalDetections + '건' : '—'}</span>
+              <span class="rstat-sep">·</span>
+              <span class="rstat">${db.year_range ? db.year_range + '년' : '—'}</span>
+            </div>
+            ${top1
+              ? `<div class="region-top"><span class="region-top-label">검토 우선도 1위</span> <b>${top1.school_name}</b> · 우선도 ${top1.score}</div>`
+              : '<div class="region-loading">데이터 로드 중…</div>'}
+          </div>
+          <div class="region-cta">서울 상세 보기 →</div>
+        </div>`;
+    }
+    return `
+      <div class="region-card disabled">
+        <div class="region-name">${r.name}</div>
+        <span class="region-coming">준비중</span>
+      </div>`;
+  }).join('');
+}
+
+function goToRegion(code) {
+  if (code !== 'seoul') return;
+  showView('dashboard');
+  loadDashboard();
+}
+
 // ===== DASHBOARD =====
 async function loadDashboard() {
+  if (dashLoaded) {
+    _renderDashboardUI(dashboardData, allSchools);
+    return;
+  }
   try {
     const [dash, schools] = await Promise.all([
       fetch(API + '/api/dashboard').then(r => r.json()),
@@ -45,23 +147,29 @@ async function loadDashboard() {
     ]);
     dashboardData = dash;
     allSchools = schools;
-
+    dashLoaded = true;
+    _renderDashboardUI(dash, schools);
+    renderNational(dash);
     const db = dash.data_basis || {};
     document.getElementById('nav-period').textContent = (db.year_range || '—') + ' 공시 기준';
-    document.getElementById('data-basis-line').textContent =
-      `${db.source || '공시 데이터'} · ${db.year_range || ''}년 · 전체 ${db.schools || schools.length}교 · 검토 후보 ${dash.total_detections}건`;
-    document.getElementById('sample-note').innerHTML =
-      `<b>프로토타입 표본 N=${db.schools || 42}</b> · ${(db.districts || []).join('·')} 일반고 · ${db.year_range || ''}년 공시 · 확장 시 전국 11,000+`;
-
-    renderTop3(dash.top3 || []);
-    renderFilters(dash.category_distribution || []);
-    renderDistBars(dash.distribution || {});
-    renderCatDist(dash.category_distribution || []);
-    renderSchoolList(schools);
   } catch (e) {
     console.error('대시보드 로드 실패', e);
     document.getElementById('top3-grid').innerHTML = '<div class="loading">데이터 로드 실패</div>';
   }
+}
+
+function _renderDashboardUI(dash, schools) {
+  const db = dash.data_basis || {};
+  document.getElementById('data-basis-line').textContent =
+    `${db.source || '공시 데이터'} · ${db.year_range || ''}년 · 전체 ${db.schools || schools.length}교 · 검토 후보 ${dash.total_detections}건`;
+  document.getElementById('sample-note').innerHTML =
+    `<b>프로토타입 표본 N=${db.schools || 42}</b> · ${(db.districts || []).join('·')} 일반고 · ${db.year_range || ''}년 공시 · 확장 시 전국 11,000+`;
+
+  renderTop3(dash.top3 || []);
+  renderFilters(dash.category_distribution || []);
+  renderDistBars(dash.distribution || {});
+  renderCatDist(dash.category_distribution || []);
+  renderSchoolList(schools);
 }
 
 // ===== TOP 3 =====
@@ -70,7 +178,7 @@ function renderTop3(top3) {
   if (!top3.length) { el.innerHTML = '<div class="loading">데이터 없음</div>'; return; }
   el.innerHTML = top3.map((s, i) => {
     const rank = i + 1;
-    const stars = '★'.repeat(s.max_star);
+    const gl = gradeLabel(s.max_star), gc = gradeCls(s.max_star);
     const cats = (s.categories_ko || []).slice(0, 5).map(c => {
       const severe = s.rep && c.code === s.rep.category_code;
       return `<span class="cat-chip ${severe ? 'severe' : ''}" title="${c.code}">${c.ko}</span>`;
@@ -81,9 +189,12 @@ function renderTop3(top3) {
         <div class="top3-head">
           <div class="rank-block">
             <span class="rank-badge">${rank}순위</span>
-            <span class="stars-lg" title="검토 등급">${stars}</span>
+            <span class="grade-badge ${gc}">${gl}</span>
           </div>
-          <span class="score-mini" title="우선순위 점수">점수 ${s.score}</span>
+          <div class="priority-block">
+            <span class="priority-label">검토 우선도</span>
+            <span class="priority-num">${s.score}</span>
+          </div>
         </div>
         <div class="school-name">${s.school_name}</div>
         <div class="school-meta">${s.district || ''}구 · ${s.school_type || ''} · 카테고리 ${s.num_categories}개</div>
@@ -107,11 +218,11 @@ function renderFilters(catDist) {
   const cats = catDist.map(c => `<span class="fchip" data-filter="category" data-val="${c.code}" title="${c.code}">${c.ko}</span>`).join('');
   el.innerHTML = `
     <div class="filter-group">
-      <span class="filter-label">검토 등급</span>
+      <span class="filter-label">검토 우선도</span>
       <div class="filter-chips">
         <span class="fchip active" data-filter="star" data-val="all">전체</span>
-        <span class="fchip" data-filter="star" data-val="3">★★★</span>
-        <span class="fchip" data-filter="star" data-val="2">★★</span>
+        <span class="fchip" data-filter="star" data-val="3">우선 검토</span>
+        <span class="fchip" data-filter="star" data-val="2">일반 검토</span>
       </div>
     </div>
     <div class="filter-group">
@@ -172,9 +283,9 @@ function renderCatDist(catDist) {
 // ===== SCHOOL LIST =====
 function renderSchoolList(schools) {
   const tbl = document.getElementById('school-list-table');
-  document.getElementById('list-count').textContent = `${schools.length}교 · 점수 내림차순`;
+  document.getElementById('list-count').textContent = `${schools.length}교 · 검토 우선도 내림차순`;
   tbl.innerHTML = `
-    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th>등급</th><th style="text-align:right">점수</th></tr></thead>
+    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th style="text-align:right">검토 우선도</th></tr></thead>
     <tbody>${schools.map(s => rowHtml(s)).join('')}</tbody>`;
   tbl.querySelectorAll('tbody tr[data-code]').forEach(tr => {
     tr.onclick = () => goToSchool(tr.dataset.code);
@@ -182,7 +293,7 @@ function renderSchoolList(schools) {
 }
 
 function rowHtml(s) {
-  const stars = '★'.repeat(s.max_star);
+  const gl = gradeLabel(s.max_star), gc = gradeCls(s.max_star);
   const cats = (s.categories_ko || []).slice(0, 5).map(c =>
     `<span class="cat-mini" title="${c.code}">${c.ko}</span>`).join('');
   return `<tr data-code="${s.school_code}">
@@ -190,8 +301,7 @@ function rowHtml(s) {
     <td class="school-cell">${s.school_name}</td>
     <td class="dist-cell">${s.district || ''} · ${s.school_type || ''}</td>
     <td class="cats-cell">${cats}</td>
-    <td class="stars-cell">${stars}</td>
-    <td class="score-cell">${s.score}</td>
+    <td class="score-cell" style="text-align:right">${s.score}</td>
   </tr>`;
 }
 
@@ -230,6 +340,7 @@ function renderSchool(d) {
       <p class="sh-meta">${d.district}구 · ${d.school_type} · 2023~2025년 공시</p>
     </div>
     <div class="sh-score">
+      <span class="score-sub-label">검토 우선도</span>
       <span class="score-num">${d.score}</span>
       <span class="score-label">${d.rank}위 / 42교</span>
     </div>`;
@@ -261,9 +372,10 @@ function renderCategoryCards(cards) {
   if (!cards || !cards.length) { document.getElementById('category-cards').innerHTML = ''; catCardData = []; return; }
   catCardData = cards;
   document.getElementById('category-cards').innerHTML = cards.map((cat, i) => {
-    const isOpen = i < 2, starCls = cat.max_star >= 3 ? 'star3' : 'star2', starBCls = cat.max_star >= 3 ? 's3' : 's2';
+    const isOpen = i < 2;
+    const starCls = cat.max_star >= 3 ? 'star3' : 'star2';
+    const gl = gradeLabel(cat.max_star), gc = gradeCls(cat.max_star);
     const detCells = new Set();
-    // 백엔드 RULE_COLUMNS가 rule_id 기준으로 내려주는 col_labels 사용 (룰명 문자열 의존 제거)
     cat.rules.forEach(r => (r.col_labels || []).forEach(c => detCells.add(`${r.year}_${c}`)));
     let tableHtml = '';
     if (cat.data_table && cat.data_table.length) {
@@ -289,7 +401,7 @@ function renderCategoryCards(cards) {
     return `<div class="cat-card ${starCls} ${isOpen ? 'open' : ''}" onclick="if(event.target.closest('.extend-panel,.col-chip'))return;this.classList.toggle('open')">
       <div class="cat-header">
         <h3>${cat.category_ko} <span class="cat-code-tag-sm">${cat.cat_code || ''}</span></h3>
-        <div class="cat-badge">${cat.is_repeat ? '<span class="cat-repeat">반복</span>' : ''}<span class="cat-star ${starBCls}">${'★'.repeat(cat.max_star)}</span><span class="cat-toggle">▾</span></div>
+        <div class="cat-badge">${cat.is_repeat ? '<span class="cat-repeat">반복</span>' : ''}<span class="cat-grade ${gc}">${gl}</span><span class="cat-toggle">▾</span></div>
       </div>
       <div class="cat-body">${rulesHtml}${tableHtml}
         <div class="cat-ai" id="${aiId}"><span style="color:var(--text-muted);font-size:11px">AI 해석 로드 중…</span></div>
@@ -507,7 +619,7 @@ function updateChatContext() {
   } else {
     title.textContent = '공시 데이터에 질문하기';
     sub.textContent = '전체 표본·룰·학교에 대해 자연어로 물어볼 수 있습니다. LLM은 판정하지 않고 확인을 돕습니다.';
-    chips.innerHTML = ['강남구 검토 후보만 보여줘', '★★★ 항목만 요약해줘', '학생수가 급감한 학교는?', '학교폭력 조치 확인 신호가 있는 학교는?']
+    chips.innerHTML = ['강남구 검토 우선도 1위 학교는?', '우선 검토 항목만 요약해줘', '학생수가 급감한 학교는?', '학교폭력 조치 확인 신호가 있는 학교는?']
       .map(t => `<button class="chip" onclick="sendChat('${t}')">${t}</button>`).join('');
     if (intro.dataset.schoolFor !== '') {
       intro.innerHTML = `<div class="chat-msg system"><div class="msg-body">전체 공시 데이터에 자연어로 질문해보세요.</div></div>`;
@@ -580,7 +692,6 @@ async function sendChat(text) {
 let advInitDone = false;
 function initAdvanced() {
   if (advInitDone) return;
-  // 서브탭 바인딩
   document.querySelectorAll('.adv-subtab').forEach(btn => {
     btn.onclick = () => {
       const sub = btn.dataset.sub;
@@ -588,7 +699,7 @@ function initAdvanced() {
       document.querySelectorAll('.adv-page').forEach(p => p.classList.toggle('active', p.id === 'adv-' + sub));
     };
   });
-  advLoadScenario(); // 시나리오 1 초기 렌더
+  advLoadScenario();
   advInitDone = true;
 }
 
@@ -604,7 +715,8 @@ df_priv = df_priv.sort_values(['school_code','year'])
 df_priv['rev_yoy'] = df_priv.groupby('school_code')['budget_revenue'].pct_change() * 100
 result = df_priv[df_priv['rev_yoy'] <= -30]`,
     similar: "B1-3 (±30%), B1-4 (±50%)",
-    star: 2,
+    grade: "일반 검토",
+    gradeCls: "grade-normal",
     results: [
       { s: "영락고", v: "-49.9%", y: 2024 },
       { s: "풍문고", v: "-44.4%", y: 2024 },
@@ -620,7 +732,8 @@ df_s['b_yoy'] = df_s.groupby('school_code')['bullying_cases'].pct_change()*100
 df_s['t_yoy'] = df_s.groupby('school_code')['teacher_count'].pct_change()*100
 result = df_s[(df_s['b_yoy']>=50) & (df_s['t_yoy']<=-5)]`,
     similar: "MC-1 (학교 분위기 악화 종합 신호)",
-    star: 3,
+    grade: "우선 검토",
+    gradeCls: "grade-priority",
     results: [
       { s: "서라벌고", v: "학폭 +200%, 교원 -8.2%", y: 2025 },
       { s: "노원고", v: "학폭 +100%, 교원 -7.4%", y: 2024 },
@@ -634,7 +747,8 @@ result = df_s[(df_s['b_yoy']>=50) & (df_s['t_yoy']<=-5)]`,
     code: `df['peer_avg'] = df.groupby(['district','year'])['meal_cost_per_student'].transform('mean')
 result = df[df['meal_cost_per_student'] < df['peer_avg'] * 0.5]`,
     similar: "D2-2 (IQR 극단값)",
-    star: 3,
+    grade: "우선 검토",
+    gradeCls: "grade-priority",
     results: [
       { s: "은광여고", v: "1인당 3,200원 (평균 6,500원의 49%)", y: 2023 },
     ],
@@ -655,19 +769,18 @@ function advGenRule() {
   const area = document.getElementById('adv-gen-area');
   area.innerHTML = '<div class="adv-loading"><span class="ai-tag">AI 분석 중…</span><p>LLM이 자연어를 분석하여 Rule Card를 생성합니다 (예시 시연)</p></div>';
   setTimeout(() => {
-    const stars = '★'.repeat(ex.star);
     area.innerHTML = `
       <div class="adv-rule-card">
         <div class="adv-rule-head">
           <div><span class="ai-tag">AI 생성</span> <b>Rule Card</b></div>
-          <span class="adv-stars">${stars}</span>
+          <span class="grade-badge ${ex.gradeCls}">${ex.grade}</span>
         </div>
         <div class="adv-rule-row"><div class="adv-rule-lb">규칙명</div><div class="adv-rule-vl strong">${ex.name}</div></div>
         <div class="adv-rule-row"><div class="adv-rule-lb">대상 컬럼</div><div class="adv-rule-vl">${ex.cols}</div></div>
         <div class="adv-rule-row"><div class="adv-rule-lb">조건</div><div class="adv-rule-vl">${ex.cond}</div></div>
         <div class="adv-rule-row"><div class="adv-rule-lb">생성된 Python 코드</div><pre class="adv-code-block">${ex.code}</pre></div>
         <div class="adv-rule-row"><div class="adv-rule-lb">유사 기존 룰</div><div class="adv-rule-vl">${ex.similar}</div></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">추천 등급</div><div class="adv-rule-vl"><span class="adv-stars">${stars}</span></div></div>
+        <div class="adv-rule-row"><div class="adv-rule-lb">추천 검토 우선도</div><div class="adv-rule-vl"><span class="grade-badge ${ex.gradeCls}">${ex.grade}</span></div></div>
       </div>
       <div class="adv-warn">샌드박스 실행 중… <code class="adv-code">safe_executor.py</code>: 화이트리스트 + 5초 타임아웃 + df 읽기 전용</div>
       <div class="adv-res">
@@ -693,18 +806,18 @@ const ADV_SCENARIOS = {
       { l: "학급수 변동률", v: "-89.3%", a: "+3.6%", f: "(3-28)/28 = -89.3%" },
     ],
     l2: [
-      { r: "C1-8", n: "학급당학생수 급변", s: 3, d: "+209.6명/학급 (임계 1.5)" },
-      { r: "D2-2", n: "학급당학생수 IQR 극단", s: 3, d: "234.7 (범위: 18~30)" },
-      { r: "C1-1", n: "학생↔학급 역방향", s: 3, d: "학생 -1.7% / 학급 -89.3%" },
+      { r: "C1-8", n: "학급당학생수 급변", grade: "우선 검토", gc: "grade-priority", d: "+209.6명/학급 (임계 1.5)" },
+      { r: "D2-2", n: "학급당학생수 IQR 극단", grade: "우선 검토", gc: "grade-priority", d: "234.7 (범위: 18~30)" },
+      { r: "C1-1", n: "학생↔학급 역방향", grade: "우선 검토", gc: "grade-priority", d: "학생 -1.7% / 학급 -89.3%" },
     ],
-    imp: "우선순위 점수 15점 — 우선 검토 대상 상위 진입",
+    imp: "검토 우선도 15 — 우선 검토 대상 상위 진입",
     fix: "학급수 원본값 '28(3)'의 파싱 정확성을 확인해 주세요. 괄호 앞 숫자(28)가 총 학급수입니다.",
     detail: [
       { l: "학생수", v: "704명", s: "정상" },
-      { l: "학급수(파싱)", v: "3", s: "검토 필요 (실제 28)" },
+      { l: "학급수(파싱)", v: "3", s: "확인 필요 (실제 28)" },
       { l: "학급당학생수", v: "234.7", s: "부풀림 (실제 25.1)" },
       { l: "학급수 YoY", v: "-89.3%", s: "부풀림 (실제 +3.6%)" },
-      { l: "우선순위 점수", v: "15점", s: "부풀림 (실제 ~6점)" },
+      { l: "검토 우선도", v: "15", s: "부풀림 (실제 ~6)" },
     ],
   },
   2: {
@@ -716,17 +829,17 @@ const ADV_SCENARIOS = {
       { l: "1인당 급식비", v: "4,989,274원", a: "4,989원", f: "3.69B / 740명" },
     ],
     l2: [
-      { r: "C2-3+", n: "급식비 강한 변동", s: 3, d: "+99,900% (학생수 +4.7%)" },
-      { r: "D2-2", n: "1인당급식비 IQR 극단", s: 3, d: "4,989,274원 (범위: 3,000~8,000)" },
+      { r: "C2-3+", n: "급식비 강한 변동", grade: "우선 검토", gc: "grade-priority", d: "+99,900% (학생수 +4.7%)" },
+      { r: "D2-2", n: "1인당급식비 IQR 극단", grade: "우선 검토", gc: "grade-priority", d: "4,989,274원 (범위: 3,000~8,000)" },
     ],
-    imp: "우선순위 점수 13점 — 상위 30% 진입",
+    imp: "검토 우선도 13 — 상위 30% 진입",
     fix: "급식비 입력단위가 '천원'인지 확인해 주세요 (매뉴얼 p39 Q1).",
     detail: [
       { l: "학생수", v: "740명", s: "정상" },
-      { l: "급식비 총액", v: "3,692,063,000원", s: "검토 필요 (실제 3,692,063천원)" },
+      { l: "급식비 총액", v: "3,692,063,000원", s: "확인 필요 (실제 3,692,063천원)" },
       { l: "급식비 YoY", v: "+99,900%", s: "부풀림 (실제 +2.3%)" },
       { l: "1인당 급식비", v: "4,989,274원", s: "부풀림 (실제 4,989원)" },
-      { l: "우선순위 점수", v: "13점", s: "부풀림" },
+      { l: "검토 우선도", v: "13", s: "부풀림" },
     ],
   },
   3: {
@@ -738,16 +851,16 @@ const ADV_SCENARIOS = {
       { l: "교원수 변동률", v: "+14.3%", a: "+2.8%", f: "강사 포함으로 과대 산출" },
     ],
     l2: [
-      { r: "F1'-1", n: "교원수 교차 불일치", s: 2, d: "학교알리미 82 vs KESS 72 (차이 10)" },
-      { r: "B1-1", n: "교원수 급변동", s: 2, d: "교원수 +14.3% (임계 10%)" },
-      { r: "C1-3", n: "학생↔교원 불균형", s: 2, d: "학생 +1.2% / 교원 +14.3%" },
+      { r: "F1'-1", n: "교원수 교차 불일치", grade: "일반 검토", gc: "grade-normal", d: "학교알리미 82 vs KESS 72 (차이 10)" },
+      { r: "B1-1", n: "교원수 급변동", grade: "일반 검토", gc: "grade-normal", d: "교원수 +14.3% (임계 10%)" },
+      { r: "C1-3", n: "학생↔교원 불균형", grade: "일반 검토", gc: "grade-normal", d: "학생 +1.2% / 교원 +14.3%" },
     ],
-    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 점수 부풀림",
+    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 검토 우선도 부풀림",
     fix: "교원수 비교 시 강사를 제외해 주세요 (학교알리미 총계 - 강사(계) = KESS 비교용).",
     detail: [
       { l: "학교알리미 교원총계", v: "82명(강사 10명 포함)", s: "정의 차이" },
       { l: "KESS 교원수", v: "72명(강사 미포함)", s: "정상" },
-      { l: "교차 차이", v: "10명", s: "검토 필요 (보정 후 0)" },
+      { l: "교차 차이", v: "10명", s: "확인 필요 (보정 후 0)" },
       { l: "교원수 YoY", v: "+14.3%", s: "과대 (실제 +2.8%)" },
       { l: "탐지 영역", v: "3개 (F1+B1+C1)", s: "과대 (실제 0~1개)" },
     ],
@@ -791,12 +904,12 @@ function advLoadScenario() {
           <div class="adv-stage-h adv-stage-l2">2차 전파 (거짓 탐지)</div>
           ${s.l2.map(l => `
             <div class="adv-tree-item adv-l2-item">
-              <div class="adv-node n-l2">${l.r} ${l.n} <span class="adv-det-tag dt${l.s}">${'★'.repeat(l.s)}</span></div>
+              <div class="adv-node n-l2">${l.r} ${l.n} <span class="grade-badge ${l.gc}" style="font-size:9px;padding:1px 6px;margin-left:4px">${l.grade}</span></div>
               <div class="adv-node-desc">${l.d} — <span class="adv-false">거짓 양성</span></div>
             </div>`).join('')}
 
           <div class="adv-tree adv-tree-nested">
-            <div class="adv-stage-h adv-stage-l3">3차 영향 (점수)</div>
+            <div class="adv-stage-h adv-stage-l3">3차 영향 (검토 우선도)</div>
             <div class="adv-tree-item adv-imp-item">
               <div class="adv-node n-imp">${s.imp}</div>
             </div>
@@ -806,14 +919,14 @@ function advLoadScenario() {
 
       <div class="adv-ai-box">
         <div class="adv-ai-h"><span class="ai-tag">AI</span> <b>원인 분석 요약</b></div>
-        <p>${s.root.l} 1개 값이 ${s.l2.length}개 룰 탐지 + 우선순위 점수 상승으로 전파되었습니다.</p>
+        <p>${s.root.l} 1개 값이 ${s.l2.length}개 룰 탐지 + 검토 우선도 상승으로 전파되었습니다.</p>
         <p class="adv-ai-rec">권장: ${s.fix}</p>
       </div>
     </div>
 
     <div class="adv-resolved" id="adv-resolved" style="display:none">
       <h4>원인 확인 완료 — ${s.l2.length}건 일괄 해소</h4>
-      <p>"${s.root.l}" 값이 정상 확인되어 전파된 ${s.l2.length}개 탐지가 자동 해소되었습니다. 우선순위 점수가 재계산됩니다.</p>
+      <p>"${s.root.l}" 값이 정상 확인되어 전파된 ${s.l2.length}개 탐지가 자동 해소되었습니다. 검토 우선도가 재계산됩니다.</p>
     </div>`;
 }
 

@@ -432,11 +432,59 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .adv-resolved h4{color:var(--green);font-size:14px;font-weight:800;margin-bottom:4px}
 .adv-resolved p{color:var(--text-sub);font-size:12.5px;margin:0}
 
+/* ===== NATIONAL VIEW (Level 0) ===== */
+.stype-tabs{display:flex;gap:4px;margin-bottom:4px}
+.stype-tab{padding:8px 18px;border:1px solid var(--border);border-radius:6px;background:var(--white);font:13px/1 var(--font);font-weight:700;cursor:pointer;color:var(--text-sub);transition:all .12s}
+.stype-tab.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.stype-tab.coming{opacity:0.45;cursor:default;display:flex;align-items:center;gap:6px}
+.coming-tag{font-size:9px;font-weight:800;background:var(--amber-bg);color:var(--amber);border:1px solid #FDE68A;border-radius:3px;padding:1px 5px;letter-spacing:0.03em}
+
+.region-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.region-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;position:relative;display:flex;flex-direction:column;min-height:120px;transition:all .15s}
+.region-card.active{border:2px solid var(--cobalt);cursor:pointer;grid-column:span 2;background:linear-gradient(135deg,var(--white) 0%,var(--cobalt-bg) 100%)}
+.region-card.active:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+.region-card.disabled{opacity:0.45;background:var(--gray-50)}
+.region-card-inner{flex:1}
+.region-name{font-size:14px;font-weight:800;color:var(--navy);margin-bottom:4px}
+.region-districts{font-size:11px;color:var(--cobalt);font-weight:600;margin-bottom:10px}
+.region-stats{display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.rstat{font-size:12.5px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.rstat-sep{color:var(--text-muted);font-size:11px}
+.region-top{font-size:12px;color:var(--text-sub);line-height:1.5}
+.region-top-label{font-size:10px;font-weight:700;color:var(--cobalt);text-transform:uppercase;letter-spacing:0.04em;display:inline-block;margin-right:4px}
+.region-top b{color:var(--navy);font-weight:800}
+.region-loading{font-size:11px;color:var(--text-muted);font-style:italic}
+.region-cta{font-size:11px;font-weight:800;color:var(--cobalt);text-align:right;margin-top:10px;letter-spacing:0.02em}
+.region-coming{display:inline-block;font-size:10px;font-weight:800;color:var(--text-muted);border:1px solid var(--border);border-radius:3px;padding:2px 7px;margin-top:6px}
+
+.nat-note{margin-top:8px;padding:10px 14px;background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:4px;font-size:11.5px;color:var(--amber);font-weight:600;line-height:1.5}
+
+/* ===== 검토 우선도 — grade badge ===== */
+.grade-badge{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:4px;white-space:nowrap;letter-spacing:0.02em}
+.grade-priority{background:var(--cobalt);color:#fff}
+.grade-normal{background:var(--gray-200);color:var(--text-sub)}
+.grade-ref{background:var(--gray-100);color:var(--text-muted)}
+
+/* priority score block (top3 카드) */
+.priority-block{text-align:right;line-height:1.2}
+.priority-label{display:block;font-size:9px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px}
+.priority-num{display:block;font-size:20px;font-weight:900;color:var(--navy);font-variant-numeric:tabular-nums;letter-spacing:-0.02em}
+
+/* school header score (학교 상세) */
+.score-sub-label{display:block;font-size:9px;color:rgba(255,255,255,0.65);font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px}
+
+/* cat grade badge (카테고리 카드) */
+.cat-grade{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:3px}
+.cat-grade.grade-priority{background:var(--cobalt);color:#fff}
+.cat-grade.grade-normal{background:#64748B;color:#fff}
+
 /* ===== RESPONSIVE ===== */
 @media(max-width:1024px){
   .top3-grid{grid-template-columns:1fr 1fr}
   .charts-row{grid-template-columns:1fr}
   .two-col{grid-template-columns:1fr}
+  .region-grid{grid-template-columns:repeat(3,1fr)}
+  .region-card.active{grid-column:span 3}
 }
 @media(max-width:768px){
   .nav-inner{padding:0 14px;gap:10px;height:auto;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}
@@ -446,4 +494,6 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
   .top3-grid{grid-template-columns:1fr}
   .summary-row{grid-template-columns:1fr}
   .chat-panel{width:calc(100vw - 16px);right:8px;bottom:8px}
+  .region-grid{grid-template-columns:repeat(2,1fr)}
+  .region-card.active{grid-column:span 2}
 }

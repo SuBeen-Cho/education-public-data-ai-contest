@@ -13,7 +13,7 @@
 <!-- ===== HEADER ===== -->
 <header class="nav">
   <div class="nav-inner">
-    <div class="brand">
+    <div class="brand" onclick="showView('national')" style="cursor:pointer">
       <div class="brand-logo">E</div>
       <div>
         <div class="brand-name">EduData Watch</div>
@@ -21,7 +21,8 @@
       </div>
     </div>
     <nav class="nav-tabs">
-      <a class="nav-tab active" data-view="dashboard" href="#">대시보드</a>
+      <a class="nav-tab active" data-view="national" href="#">전국 현황</a>
+      <a class="nav-tab" data-view="dashboard" href="#">서울 고등학교</a>
       <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
       <a class="nav-tab" data-view="advanced" href="#">고도화 미리보기</a>
     </nav>
@@ -35,8 +36,35 @@
 <!-- ===== MAIN ===== -->
 <main>
 
-  <!-- DASHBOARD VIEW -->
-  <section id="view-dashboard" class="view active">
+  <!-- ===== NATIONAL VIEW (Level 0 — 기본 랜딩) ===== -->
+  <section id="view-national" class="view active">
+    <div class="page-title">
+      <h1>전국 공시 데이터 검토 현황</h1>
+      <span class="updated">프로토타입 표본 · 시범운영: 서울 3구 고등학교</span>
+    </div>
+
+    <!-- 학교 유형 탭 -->
+    <div class="stype-tabs">
+      <button class="stype-tab active">고등학교</button>
+      <button class="stype-tab coming" disabled>중학교 <span class="coming-tag">준비중</span></button>
+      <button class="stype-tab coming" disabled>초등학교 <span class="coming-tag">준비중</span></button>
+    </div>
+
+    <div class="section-label" style="margin-top:24px">시 · 도별 검토 현황</div>
+    <div class="region-grid" id="region-grid">
+      <div class="loading">데이터 로드 중…</div>
+    </div>
+
+    <div class="nat-note">
+      프로토타입 표본 N=42 · 서울 강남·노원·관악구 일반고 · 2023~2025년 공시 기준 · 확장 시 전국 11,000+
+    </div>
+  </section>
+
+  <!-- ===== DASHBOARD VIEW (Level 1 — 서울 선택 후) ===== -->
+  <section id="view-dashboard" class="view">
+    <div class="back-bar">
+      <a href="#" class="back-link" id="back-to-national">← 전국 현황으로</a>
+    </div>
     <div class="page-title">
       <h1>공시 데이터 검토 우선 후보</h1>
       <span class="updated" id="data-basis-line">—</span>
@@ -51,7 +79,7 @@
 
     <div class="two-col">
       <div class="panel">
-        <h3>우선순위 점수 분포</h3>
+        <h3>검토 우선도 분포</h3>
         <div class="dist-bars" id="dist-bars"></div>
         <div class="sample-note" id="sample-note">—</div>
       </div>
@@ -72,10 +100,10 @@
     </div>
   </section>
 
-  <!-- SCHOOL DETAIL VIEW (기존 로직 유지) -->
+  <!-- ===== SCHOOL DETAIL VIEW ===== -->
   <section id="view-school" class="view">
     <div class="back-bar">
-      <a href="#" class="back-link" id="back-to-dashboard">← 대시보드로 돌아가기</a>
+      <a href="#" class="back-link" id="back-to-dashboard">← 서울 고등학교 목록으로</a>
     </div>
 
     <div class="school-header" id="school-header"></div>
@@ -128,7 +156,7 @@
       <div class="adv-banner-icon">⚠</div>
       <div>
         <div class="adv-banner-title">이 화면은 향후 기능의 시연용 미리보기입니다.</div>
-        <div class="adv-banner-sub">표시되는 수치·학교명·탐지는 <b>실제 공시 데이터 분석 결과가 아니며</b>, 룰셋 정의서·시나리오 카드의 예시를 그대로 옮긴 것입니다. 본 도구의 실제 검토 후보는 <a href="#" data-view="dashboard" id="adv-back">대시보드</a>에서 확인하세요.</div>
+        <div class="adv-banner-sub">표시되는 수치·학교명·탐지는 <b>실제 공시 데이터 분석 결과가 아니며</b>, 룰셋 정의서·시나리오 카드의 예시를 그대로 옮긴 것입니다. 본 도구의 실제 검토 후보는 <a href="#" data-view="dashboard" id="adv-back">서울 고등학교</a>에서 확인하세요.</div>
       </div>
     </div>
 
@@ -187,7 +215,7 @@
       <div class="adv-card">
         <h2 class="adv-h2">구현 기획</h2>
         <div class="adv-step"><div class="adv-step-n">1</div><div class="adv-step-c"><b>입력 전처리</b> — DB 스키마(컬럼명+타입) + 자연어 질문 + 샘플 데이터 5행을 LLM 프롬프트에 포함</div></div>
-        <div class="adv-step"><div class="adv-step-n ai-step"><span class="ai-tag">AI</span></div><div class="adv-step-c"><b>Rule Card 생성</b> — Chain-of-Thought 프롬프트로 LLM이 규칙명·대상 컬럼·조건·Python 코드·유사 기존 룰·추천 ★를 JSON으로 출력</div></div>
+        <div class="adv-step"><div class="adv-step-n ai-step"><span class="ai-tag">AI</span></div><div class="adv-step-c"><b>Rule Card 생성</b> — Chain-of-Thought 프롬프트로 LLM이 규칙명·대상 컬럼·조건·Python 코드·유사 기존 룰·추천 검토 우선도를 JSON으로 출력</div></div>
         <div class="adv-step"><div class="adv-step-n">3</div><div class="adv-step-c"><b>샌드박스 실행</b> — <code class="adv-code">safe_executor.py</code>로 생성된 코드를 실행 (화이트리스트 + 5초 타임아웃 + df 읽기 전용)</div></div>
         <div class="adv-step"><div class="adv-step-n">4</div><div class="adv-step-c"><b>결과 표시 + 검증</b> — 탐지 건수, 탐지 학교 목록, 기존 룰과 중복 여부를 자동 확인</div></div>
         <div class="adv-step"><div class="adv-step-n">5</div><div class="adv-step-c"><b>채택/수정/폐기</b> — 담당자가 결과를 확인하고 룰셋에 저장하거나 조건을 수정</div></div>
@@ -234,7 +262,7 @@
         <div class="adv-step"><div class="adv-step-n">1</div><div class="adv-step-c"><b>의존성 그래프 구축</b> — 룰 엔진의 각 룰이 어떤 컬럼을 입력받는지 매핑. 파생 컬럼(학급당학생수 = 학생수/학급수)의 원본 컬럼 추적</div></div>
         <div class="adv-step"><div class="adv-step-n">2</div><div class="adv-step-c"><b>탐지 결과 역추적</b> — 동일 학교에서 여러 룰이 동시 탐지되면, 공통 원인 컬럼을 BFS(너비 우선 탐색)로 탐색</div></div>
         <div class="adv-step"><div class="adv-step-n ai-step"><span class="ai-tag">AI</span></div><div class="adv-step-c"><b>원인 설명 생성</b> — LLM이 전파 경로를 자연어로 요약. "학급수 하나 때문에 3개 룰이 연쇄 탐지되었습니다"</div></div>
-        <div class="adv-step"><div class="adv-step-n">4</div><div class="adv-step-c"><b>일괄 해소 기능</b> — 원인 노드 "정상 확인" 클릭 시, 해당 노드에 의존하는 모든 하위 탐지를 자동으로 "정상 처리". 우선순위 점수도 재계산</div></div>
+        <div class="adv-step"><div class="adv-step-n">4</div><div class="adv-step-c"><b>일괄 해소 기능</b> — 원인 노드 "정상 확인" 클릭 시, 해당 노드에 의존하는 모든 하위 탐지를 자동으로 "정상 처리". 검토 우선도도 재계산</div></div>
         <div class="adv-step"><div class="adv-step-n">5</div><div class="adv-step-c"><b>우선 확인 순서 안내</b> — 가장 많은 하위 탐지에 영향을 미치는 원인 노드를 1순위로 표시</div></div>
       </div>
     </div>
