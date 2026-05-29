@@ -50,6 +50,8 @@ RULE_META = {
     "C5-1":  {"category": "C5", "name": "진급 시 학생 이탈",           "star": 3, "status": "active", "cols": ["grade1_students", "grade2_students"]},
     # F1' 교차 불일치
     "F1'-1": {"category": "F1", "name": "교원수 교차 불일치",          "star": 2, "status": "active", "cols": ["teacher_count_no_instructor", "kess_teacher_total"]},
+    # G1 장기 추세 점검 (신규 카테고리 — 단년 급변 X, 3년 누적 단조 변화)
+    "G1-1":  {"category": "G1", "name": "3년 단조 추세",               "star": 2, "status": "active", "cols": ["student_count", "teacher_count", "graduation_rate", "meal_cost_per_student"]},
 }
 
 
@@ -112,6 +114,9 @@ class RuleEngine:
 
         # F1'
         self._check_f1_prime()  # 교원수 교차 불일치
+
+        # G1 — 장기 추세
+        self._check_g1_1()      # 3년 단조 추세 (드리프트)
 
         return self._to_dataframe()
 
@@ -636,6 +641,65 @@ class RuleEngine:
     # ────────────────────────────────────────────────
     # F1' — 교차 불일치
     # ────────────────────────────────────────────────
+
+    def _check_g1_1(self):
+        """G1-1: 3년 단조 추세 (드리프트).
+        조건 — 단년 변동은 ±10% 미만(B1 영역 제외) + 3년 같은 방향 + 누적 변화 8% 이상.
+        용도 — 단년 급변은 안 잡혔지만 천천히 누적되어 의미 있는 변화가 일어난 패턴 점검."""
+        targets = [
+            ("student_count", "학생수"),
+            ("teacher_count", "교원수"),
+            ("graduation_rate", "진학률(%)"),
+            ("meal_cost_per_student", "1인당급식비(원)"),
+        ]
+        df_sorted = self.df.sort_values(["school_code", "year"])
+        for _, group in df_sorted.groupby("school_code"):
+            if len(group) < 3:
+                continue
+            group = group.sort_values("year").reset_index(drop=True)
+            for col, name in targets:
+                if col not in group.columns:
+                    continue
+                vals = group[col].values
+                if len(vals) < 3:
+                    continue
+                v0, v1, v2 = vals[-3], vals[-2], vals[-1]
+                if pd.isna(v0) or pd.isna(v1) or pd.isna(v2) or v0 == 0:
+                    continue
+                yoy1 = (v1 - v0) / v0 * 100
+                yoy2 = (v2 - v1) / v1 * 100 if v1 != 0 else 0
+                # 단년 ±10% 이상은 B1 영역이므로 드리프트로 보지 않음
+                if abs(yoy1) >= 10 or abs(yoy2) >= 10:
+                    continue
+                # 단조 (같은 방향 — 0은 양쪽 어디에도 못 들어감)
+                if not ((yoy1 > 0 and yoy2 > 0) or (yoy1 < 0 and yoy2 < 0)):
+                    continue
+                cum_pct = (v2 - v0) / v0 * 100
+                if abs(cum_pct) < 8:
+                    continue
+                # 단순 선형 회귀 기울기 + R^2 (3 포인트)
+                xs = [0, 1, 2]
+                ys = [float(v0), float(v1), float(v2)]
+                mean_x = 1.0
+                mean_y = sum(ys) / 3
+                ss_xy = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(3))
+                ss_xx = sum((xs[i] - mean_x) ** 2 for i in range(3))
+                slope = ss_xy / ss_xx if ss_xx else 0.0
+                intercept = mean_y - slope * mean_x
+                ss_tot = sum((y - mean_y) ** 2 for y in ys)
+                ss_res = sum((ys[i] - (slope * xs[i] + intercept)) ** 2 for i in range(3))
+                r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+                direction = "감소" if cum_pct < 0 else "증가"
+                self._add(group.iloc[-1], "G1-1", "3년 단조 추세", 2, "G1",
+                          f"{name} 3년 누적 {cum_pct:+.1f}% ({v0:.1f}→{v1:.1f}→{v2:.1f}) · 단조 {direction} · R²={r2:.2f}",
+                          {"field": name, "col_key": col, "col_label": name,
+                           "cumulative_pct": round(float(cum_pct), 1),
+                           "slope_per_year": round(float(slope), 2),
+                           "r_squared": round(float(r2), 3),
+                           "direction": direction,
+                           "values_3y": [round(float(v0), 1), round(float(v1), 1), round(float(v2), 1)],
+                           "yoy1": round(float(yoy1), 1),
+                           "yoy2": round(float(yoy2), 1)})
 
     def _check_f1_prime(self):
         """F1'-1: 학교알리미(강사 제외) vs KESS 교원수 3명 이상 차이."""

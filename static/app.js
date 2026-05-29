@@ -672,6 +672,9 @@ function renderSchool(d) {
   // 마스터-디테일 — 좌 룰 리스트 / 우 선택 룰 상세 + Evidence Chart
   renderMasterDetail(d);
 
+  // 자가진단 리포트 (종합 요약)
+  renderSelfReport(d.self_report);
+
   // 원자료 테이블 (최하단, 기본 닫힘)
   renderDataTable(d.data_table, 'full-data-table');
 
@@ -697,9 +700,12 @@ function _collectRulesFromCards(cards) {
           details: [],
           severity: 0,
           data_table: cat.data_table || [],
+          sixbox: r.sixbox || null,    // 첫 detection의 6박스를 룰 기본값으로 채택
         };
       }
       const m = map[r.rule_id];
+      // 6박스가 비어 있고 새 detection이 갖고 있으면 보강
+      if (!m.sixbox && r.sixbox) m.sixbox = r.sixbox;
       // col_pairs를 우선 가져옴 (백엔드가 짝지어 내려줌). 없으면 col_keys/col_labels 인덱스로 짝 추정.
       const pairs = Array.isArray(r.col_pairs) && r.col_pairs.length
         ? r.col_pairs
@@ -836,6 +842,9 @@ function selectRule(ruleId) {
 
     ${numTable ? `<div class="md-detail-section-h">수치 + 동료군 비교</div>${numTable}` : ''}
 
+    <div class="md-detail-section-h">6박스 요약</div>
+    ${_renderSixBox(rule.sixbox)}
+
     <div class="md-detail-section-h">확인 권장</div>
     <div class="md-detail-rec">${recText}</div>
   `;
@@ -861,6 +870,7 @@ function _ruleChartCaption(rule) {
     'C5-1': '학생수 변동이 자연 감소 범위(-7~+3%)를 벗어났습니다. 신·편입학 또는 전출 사유를 확인합니다.',
     'E2-2': '3년간 동일 수치는 데이터 미갱신 가능성을 확인할 신호입니다.',
     "F1'-1": '학교알리미와 KESS 교원수 차이는 강사 포함/미포함 기준 차이일 수 있습니다.',
+    'G1-1': '단년 급변은 없지만 3년에 걸쳐 같은 방향으로 누적 변화가 일어난 패턴입니다. B1(단년 급변동)에는 안 잡히지만 추세 자체를 확인할 신호입니다.',
   };
   return map[rule.rule_id] || '본교 시계열과 동료군(같은 구) 비교를 통해 확인이 필요한 지표입니다.';
 }
@@ -881,6 +891,7 @@ function _ruleRecommendation(rule) {
     'C5-1': '<b>확인 권장</b>: 신·편입학, 전출·전입, 자퇴·휴학 등 학생수 변동 사유를 확인해 주세요.',
     'E2-2': '<b>확인 권장</b>: 3년간 동일 수치가 실제 변동 없음인지, 입력 갱신 누락인지 확인해 주세요.',
     "F1'-1": '<b>확인 권장</b>: 학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.',
+    'G1-1': '<b>확인 권장</b>: 3년 누적 변동의 사유(인구 변화·학교 운영 변화·정책 영향 등)를 함께 확인해 주세요. 단년 급변 룰(B1)에는 잡히지 않지만 추세 자체는 지속 모니터링 권장.',
   };
   return map[rule.rule_id] || '<b>확인 권장</b>: 본교 값과 동료군 값을 비교하여 정상 예외 가능성과 입력 정확성을 확인해 주세요.';
 }
@@ -912,8 +923,36 @@ function renderEvidenceChart(rule) {
   if (rid === 'E2-2' || rid === 'E1-1' || rid === 'E1-2') {
     return _renderStatusTimeline(host, rule);
   }
+  if (rid === 'G1-1') {
+    return _renderDriftTrend(host, rule);
+  }
   // fallback: 기존 라인 차트
   return _renderLineChart(host, rule);
+}
+
+// ── 공통 6박스 렌더러 (룰 단위 + 챗봇 공유) ──
+//  · 백엔드가 LLM 없이 정적 + 자동 주입으로 안전하게 채워서 내려옴 (sixbox 객체)
+//  · 표시 항목: 1.핵심 발견 / 2.수치 변화 / 3.패턴 해석 / 4.동료군 맥락 / 5.정상 예외 / 6.확인 권장
+//  · sixbox가 없거나 일부 비면 그 박스는 "—"로 조용히 표시 (화면 깨짐 방지)
+function _renderSixBox(sixbox) {
+  if (!sixbox || typeof sixbox !== 'object') {
+    return '<div class="sb-empty">6박스 요약 데이터가 없습니다.</div>';
+  }
+  const items = [
+    { key: 'finding',   lb: '1. 핵심 발견',     icon: '🎯' },
+    { key: 'numbers',   lb: '2. 수치 변화',     icon: '📊' },
+    { key: 'pattern',   lb: '3. 패턴 해석',     icon: '🔍' },
+    { key: 'peer',      lb: '4. 동료군 맥락',   icon: '🏫' },
+    { key: 'normal',    lb: '5. 정상 예외 가능성', icon: '💡' },
+    { key: 'recommend', lb: '6. 확인 권장',     icon: '✅' },
+  ];
+  return `<div class="sb-grid">${items.map(it => {
+    const val = (sixbox[it.key] || '').toString().trim();
+    return `<div class="sb-card sb-${it.key}">
+      <div class="sb-h"><span class="sb-i">${it.icon}</span><span class="sb-lb">${it.lb}</span></div>
+      <div class="sb-v">${val || '—'}</div>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 // ── 공통 헬퍼: 매칭은 col_key, 표시는 한국어 col_label ──
@@ -1268,6 +1307,102 @@ function _legacyRenderEvidenceCards_unused(cards) {
   });
 }
 
+// ===== SELF REPORT (자가진단 리포트 — 학교 상세 끝) =====
+//  · 백엔드 self_report 객체를 받아 카드 그리드로 렌더링
+//  · "출력 미리보기" 버튼은 window.print 사용 (실제 PDF 생성 아님, 사용자 요청대로 미리보기 수준)
+function renderSelfReport(rep) {
+  const host = document.getElementById('self-report-section');
+  if (!host) return;
+  if (!rep || !rep.school_name) {
+    host.innerHTML = '<div class="sr-empty">자가진단 리포트 데이터를 불러오지 못했습니다.</div>';
+    return;
+  }
+  const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 42;
+  const idxCls = indexCls(rep.score), idxLb = rep.grade_label || indexLabel(rep.score);
+
+  // Top 신호 행
+  const topRows = (rep.top_signals || []).map((s, i) => `
+    <div class="sr-top-row">
+      <div class="sr-top-rank">${i + 1}</div>
+      <div class="sr-top-main">
+        <div class="sr-top-name">${s.rule_name_ko} <span class="sr-top-rid">${s.rule_id}</span></div>
+        <div class="sr-top-meta">${s.year}년 · ${s.category_ko}</div>
+        <div class="sr-top-detail">${s.detail || ''}</div>
+      </div>
+    </div>`).join('');
+
+  // 카테고리 요약
+  const catRows = (rep.category_summary || []).map(c => `
+    <div class="sr-cat-row ${c.is_repeat ? 'repeat' : ''}">
+      <span class="sr-cat-name">${c.category_ko}</span>
+      <span class="sr-cat-code">${c.cat_code || ''}</span>
+      <span class="sr-cat-cnt">${c.total_detections}건 / ${c.rule_count}룰${c.is_repeat ? ' · 반복' : ''}</span>
+    </div>`).join('');
+
+  // 동료군 대비
+  const peerRows = (rep.peer_summary || []).map(p => {
+    const sign = p.diff_pct >= 0 ? '+' : '';
+    const cls = Math.abs(p.diff_pct) >= 20 ? 'sig' : Math.abs(p.diff_pct) >= 10 ? 'mid' : '';
+    return `<div class="sr-peer-row ${cls}">
+      <span class="sr-peer-lb">${p.label}</span>
+      <span class="sr-peer-vl">본교 <b>${Number.isInteger(p.self) ? Number(p.self).toLocaleString() : p.self.toFixed(1)}</b> · 동료군 ${Number.isInteger(p.peer) ? Number(p.peer).toLocaleString() : p.peer.toFixed(1)}<span class="sr-peer-unit">${p.unit}</span></span>
+      <span class="sr-peer-diff">${sign}${p.diff_pct}%</span>
+    </div>`;
+  }).join('');
+
+  // 확인 권장
+  const recRows = (rep.recommends || []).map((r, i) => `
+    <div class="sr-rec-row">
+      <span class="sr-rec-n">${i + 1}</span>
+      <span class="sr-rec-name">${r.rule_name_ko} <span class="sr-top-rid">${r.rule_id}</span></span>
+      <span class="sr-rec-text">${r.text}</span>
+    </div>`).join('');
+
+  host.innerHTML = `
+    <div class="sr-wrap">
+      <div class="sr-head">
+        <div class="sr-head-info">
+          <div class="sr-head-name">${rep.school_name}</div>
+          <div class="sr-head-meta">${rep.district || ''}구 · ${rep.school_type || ''} · ${rep.year_range || ''}년 공시 · 자가진단 리포트</div>
+        </div>
+        <div class="sr-head-actions">
+          <button class="sr-print-btn" onclick="printSelfReport()">출력 미리보기</button>
+        </div>
+      </div>
+      <div class="sr-summary-grid">
+        <div class="sr-sum-card sr-lead">
+          <div class="sr-sum-lb">검토 우선도 지수</div>
+          <div class="sr-sum-vl">${fmtIndex(rep.score)}</div>
+          <div class="sr-sum-sub"><span class="grade-badge ${idxCls}">${idxLb}</span> ${rep.rank}위 / ${total}교</div>
+        </div>
+        <div class="sr-sum-card">
+          <div class="sr-sum-lb">검토 신호 수</div>
+          <div class="sr-sum-vl">${rep.num_detections}<small>건</small></div>
+          <div class="sr-sum-sub">${rep.num_rules}개 세부 룰</div>
+        </div>
+        <div class="sr-sum-card">
+          <div class="sr-sum-lb">관련 카테고리</div>
+          <div class="sr-sum-vl">${rep.num_categories}<small>개</small></div>
+          <div class="sr-sum-sub">${rep.is_repeat ? '3년 반복 신호' : '복수·단년 신호'}</div>
+        </div>
+      </div>
+      ${topRows ? `<div class="sr-section-h">주요 검토 신호 Top ${(rep.top_signals||[]).length}</div><div class="sr-top-list">${topRows}</div>` : ''}
+      ${catRows ? `<div class="sr-section-h">카테고리 요약</div><div class="sr-cat-list">${catRows}</div>` : ''}
+      ${peerRows ? `<div class="sr-section-h">동료군 대비 요약 (최근 연도)</div><div class="sr-peer-list">${peerRows}</div>` : ''}
+      ${recRows ? `<div class="sr-section-h">확인 권장 사항</div><div class="sr-rec-list">${recRows}</div>` : ''}
+      <div class="sr-foot">
+        본 리포트는 본 도구가 추출한 검토 후보를 종합 요약한 것이며, 학교 평가가 아닙니다. 최종 판단·조치는 담당자가 수행합니다.<br>
+        프로토타입 표본 N=42 · 서울 강남·노원·관악구 일반고 · 확장 시 전국 11,000+
+      </div>
+    </div>`;
+}
+
+function printSelfReport() {
+  // 출력 미리보기 — window.print (실제 PDF 생성 아님, 미리보기 수준)
+  showNotify('인쇄 미리보기를 엽니다');
+  setTimeout(() => window.print(), 200);
+}
+
 // ===== DATA TABLE =====
 function renderDataTable(table, targetId) {
   const el = document.getElementById(targetId || 'full-data-table');
@@ -1325,6 +1460,92 @@ function renderCharts(cd) {
 }
 
 // (고급 탐색 기능은 nav에서 제거됨. /api/custom-analysis 백엔드는 추후 정리 위해 보존.)
+
+// ── G1-1 — Drift Trend ──
+// 본교 3년 시계열 + 추세선(같은 axis) + 우측에 누적 변화·기울기·R²·방향 메타 카드
+function _renderDriftTrend(host, rule) {
+  const cd = currentSchoolData.chart_data;
+  const labels = cd.labels;
+  const series = _seriesForRule(rule)[0];
+  if (!series) { _renderLineChart(host, rule); return; }
+  const vals = series.payload.self || [];
+  const colLabel = series.label;
+
+  // 룰 detection의 메타에서 추출 시도 — details에 R²·기울기 문자열이 들어 있지만 안정성 위해 직접 재계산
+  let v0 = null, v1 = null, v2 = null;
+  if (vals.length >= 3) { v0 = vals[vals.length - 3]; v1 = vals[vals.length - 2]; v2 = vals[vals.length - 1]; }
+  let cumPct = null, slope = null, r2 = null, direction = '—';
+  if (v0 != null && v1 != null && v2 != null && v0 !== 0) {
+    cumPct = (v2 - v0) / v0 * 100;
+    direction = cumPct < 0 ? '감소' : (cumPct > 0 ? '증가' : '변화 없음');
+    const xs = [0, 1, 2], ys = [v0, v1, v2];
+    const meanX = 1, meanY = (v0 + v1 + v2) / 3;
+    let ssXY = 0, ssXX = 0;
+    for (let i = 0; i < 3; i++) { ssXY += (xs[i] - meanX) * (ys[i] - meanY); ssXX += (xs[i] - meanX) ** 2; }
+    slope = ssXX ? ssXY / ssXX : 0;
+    const intercept = meanY - slope * meanX;
+    let ssTot = 0, ssRes = 0;
+    for (let i = 0; i < 3; i++) { ssTot += (ys[i] - meanY) ** 2; ssRes += (ys[i] - (slope * xs[i] + intercept)) ** 2; }
+    r2 = ssTot ? Math.max(0, 1 - ssRes / ssTot) : 1;
+  }
+
+  // host 안에 canvas + meta 동시 배치
+  host.innerHTML = `
+    <div class="ev-comp ev-drift">
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Drift Trend</span></div>
+      <div class="dr-grid">
+        <div class="dr-chart-wrap"><canvas id="md-evidence-chart"></canvas></div>
+        <div class="dr-stats">
+          <div class="dr-stat ${direction === '감소' ? 'down' : direction === '증가' ? 'up' : ''}">
+            <div class="dr-stat-lb">3년 누적 변화</div>
+            <div class="dr-stat-vl">${cumPct != null ? (cumPct >= 0 ? '+' : '') + cumPct.toFixed(1) + '%' : '—'}</div>
+            <div class="dr-stat-sub">${direction}</div>
+          </div>
+          <div class="dr-stat">
+            <div class="dr-stat-lb">연 평균 기울기</div>
+            <div class="dr-stat-vl">${slope != null ? (slope >= 0 ? '+' : '') + slope.toFixed(2) : '—'}</div>
+            <div class="dr-stat-sub">/년</div>
+          </div>
+          <div class="dr-stat ${r2 != null && r2 >= 0.9 ? 'strong' : ''}">
+            <div class="dr-stat-lb">R²</div>
+            <div class="dr-stat-vl">${r2 != null ? r2.toFixed(2) : '—'}</div>
+            <div class="dr-stat-sub">${r2 != null && r2 >= 0.9 ? '강한 단조' : '추세 적합도'}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // 본교 라인 + 회귀선 (Chart.js)
+  const cvs = document.getElementById('md-evidence-chart');
+  if (!cvs) return;
+  if (mdChart) { mdChart.destroy(); mdChart = null; }
+  const trendLine = (slope != null) ? labels.map((_, i) => {
+    const intercept = ((v0 + v1 + v2) / 3) - slope * 1;   // mean_x=1
+    return slope * i + intercept;
+  }) : labels.map(() => null);
+
+  mdChart = new Chart(cvs, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.08)', borderWidth: 3, pointRadius: 5, pointHoverRadius: 7, tension: 0, fill: true, order: 1 },
+        { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10, family: 'Pretendard Variable' }, usePointStyle: true, padding: 8 } },
+        tooltip: { callbacks: { title: items => `${items[0].label}년` } },
+      },
+      scales: {
+        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 11, weight: '600' } } },
+      },
+    },
+  });
+}
 
 function showNotify(msg) {
   const n = document.createElement('div'); n.className = 'extend-notify'; n.textContent = msg;
@@ -1451,6 +1672,10 @@ async function sendChat(text) {
 
     let html = `<div class="chat-card">`;
     if (primary) html += `<div class="chat-card-header">분석 결과<span class="chat-confidence ${cc}" style="margin:0">${conf}</span></div><div class="chat-card-body">${primary}</div>`;
+    // 학교+룰 컨텍스트가 명확하면 6박스 첨부 (서버가 sixbox 동봉)
+    if (data.sixbox) {
+      html += `<div class="chat-card-body" style="border-top:1px solid var(--border-light);padding-top:6px">${_renderSixBox(data.sixbox)}</div>`;
+    }
     if (report) {
       let parsed = marked.parse(report);
       parsed = parsed.replace(/(\d+\.?\d*%[p]?)/g, '<span class="hl">$1</span>');

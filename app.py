@@ -9,6 +9,7 @@ import re
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -143,6 +144,7 @@ class ChatResponse(BaseModel):
     report: str
     confidence: str
     follow_up_suggestions: list
+    sixbox: Optional[dict] = None   # 학교+룰 컨텍스트가 명확할 때 6박스 첨부 (없으면 None)
 
 
 # ── 엔드포인트 ──
@@ -345,6 +347,9 @@ async def school_detail(school_code: str):
         "chart_data": chart_data,
         "detection_cards": det_cards,
     }
+
+    # ⑦ 자가진단 리포트 — 학교 상세 하단용 종합 요약 (LLM 미사용, 정적 + 자동 주입)
+    result["self_report"] = _build_self_report(result, school_df, df, det_cards, school_score)
 
     # Gemini 해석: 상단 요약 — 실패 시 안전 폴백 (임의 수치 X)
     client = app_state.get("gemini")
@@ -578,6 +583,7 @@ async def chat_explore(req: ChatRequest):
         report=report,
         confidence=plan.get("confidence", "중간"),
         follow_up_suggestions=suggestions,
+        sixbox=None,
     )
 
 
@@ -600,6 +606,7 @@ def _chat_fallback_response(message: str, query: str) -> ChatResponse:
             "우선 검토 신호만 요약해줘",
             "강남구 검토 후보만 보여줘",
         ],
+        sixbox=None,
     )
 
 
@@ -660,6 +667,7 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
             "대표 검토 신호": rep_text,
         })
 
+    sixbox_attached = None
     if n == 1 and result_data:
         s = top.iloc[0]
         rep = _representative_detection(detections, s["school_code"])
@@ -667,6 +675,29 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
         if rep is not None:
             rid = str(rep.get("rule_id", ""))
             rep_line = f" 대표 검토 신호: {RULE_NAMES_KO.get(rid, rid)}({rid}) — {rep.get('detail','')}."
+            # 챗봇 응답에 대표 룰 6박스 첨부 — 학교+룰 컨텍스트 명확
+            try:
+                school_df_one = df[df["school_code"] == str(s["school_code"])]
+                district_one = str(school_df_one["district"].iloc[0]) if not school_df_one.empty else ""
+                dyn_label = str(rep.get("col_label", "") or "").strip()
+                dyn_key = str(rep.get("col_key", "") or "").strip()
+                if dyn_key:
+                    col_pairs_one = [{"key": dyn_key, "label": _canon_label(dyn_label or dyn_key)}]
+                else:
+                    col_pairs_one = [{"key": k, "label": _canon_label(label)} for label, k in RULE_COLUMNS.get(rid, [])]
+                rule_obj_one = {
+                    "rule_id": rid,
+                    "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
+                    "year": int(rep.get("year", 0)),
+                    "detail": str(rep.get("detail", "")),
+                    "col_labels": [p["label"] for p in col_pairs_one],
+                    "col_keys": [p["key"] for p in col_pairs_one],
+                    "col_pairs": col_pairs_one,
+                }
+                sixbox_attached = _build_sixbox(rule_obj_one, school_df_one, df, district_one)
+            except Exception as e:
+                print(f"[WARN] priority sixbox 생성 실패: {e}")
+                sixbox_attached = None
         report = (
             f"{scope_label} 기준 검토 우선도가 가장 높은 학교는 **{s['school_name']}**입니다 "
             f"(검토 우선도 지수 {float(s['score']):.1f}, 전체 순위 {int(s['rank'])}위, "
@@ -698,6 +729,7 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
             "강남구 검토 후보만 보여줘" if district != "강남" else "전체 검토 후보 보여줘",
             "이 학교들의 공통 검토 신호는?",
         ],
+        "sixbox": sixbox_attached,
     }
 
 
@@ -764,6 +796,7 @@ RULE_NAMES_KO = {
     "E1-3": "공시 의무 항목 미제출",
     "E2-2": "3년 동일값 반복",
     "F1'-1": "교원수 교차 불일치",
+    "G1-1": "3년 단조 추세",
 }
 
 CATEGORY_NAMES_KO = {
@@ -772,6 +805,7 @@ CATEGORY_NAMES_KO = {
     "D2": "유사학교 대비 편차", "C5": "학년 진급 인원 점검",
     "E1": "누락 패턴 점검", "E2": "수치 미갱신 점검",
     "F1": "연계 시점 차이 점검",
+    "G1": "장기 추세 점검",
 }
 
 # 데이터 테이블에 표시할 지표 목록 (단일 라벨, 중복 행 없음).
@@ -1038,6 +1072,98 @@ def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -
     return item
 
 
+def _build_self_report(detail_result: dict, school_df, full_df, det_cards: list, school_score) -> dict:
+    """⑦ 자가진단 리포트 — 한 학교의 종합 요약. LLM 미사용, 정적 + 자동 주입.
+    포함: 학교명·지수·순위·주요 검토 신호 Top N·카테고리 요약·동료군 대비 요약·확인 권장."""
+    rank_total = int(school_score["rank"].iloc[0]) if not school_score.empty else 0
+    score_f = float(school_score["score"].iloc[0]) if not school_score.empty else 0.0
+    grade_label = "우선 검토" if score_f >= 16 else "일반 검토" if score_f >= 11 else "참고"
+
+    # 주요 검토 신호 Top 5 — 카드에서 severity·연도 순으로
+    flat_rules = []
+    for cat in det_cards:
+        for r in cat.get("rules", []):
+            flat_rules.append({
+                "rule_id": r["rule_id"],
+                "rule_name_ko": r["rule_name_ko"],
+                "category_ko": cat["category_ko"],
+                "year": r["year"],
+                "star": r.get("star", 0),
+                "detail": r.get("detail", ""),
+            })
+    flat_rules.sort(key=lambda x: (-x["star"], -x["year"], x["rule_id"]))
+    top_signals = flat_rules[:5]
+
+    # 카테고리 요약 — 카테고리별 룰 수·세부 룰 수
+    cat_summary = []
+    for cat in det_cards:
+        seen_rules = {r["rule_id"] for r in cat.get("rules", [])}
+        cat_summary.append({
+            "category_ko": cat["category_ko"],
+            "cat_code": cat.get("cat_code", ""),
+            "total_detections": len(cat.get("rules", [])),
+            "rule_count": len(seen_rules),
+            "is_repeat": bool(cat.get("is_repeat", False)),
+        })
+
+    # 동료군 대비 요약 — 핵심 4지표(학생수·교원수·학급당학생수·1인당급식비)에서 본교 vs 동료군
+    peer_summary = []
+    if not school_df.empty:
+        last_yr = sorted(school_df["year"].unique())[-1]
+        last = school_df[school_df["year"] == last_yr]
+        for col, label, unit in [
+            ("student_count", "학생수", "명"),
+            ("teacher_count", "교원수", "명"),
+            ("students_per_class", "학급당학생수", "명/학급"),
+            ("meal_cost_per_student", "1인당 급식비", "원"),
+        ]:
+            peer_col = f"{col}_dist_mean"
+            if col in last.columns and peer_col in last.columns:
+                self_v = last[col].iloc[0]
+                peer_v = last[peer_col].iloc[0]
+                if pd.notna(self_v) and pd.notna(peer_v) and peer_v != 0:
+                    diff_pct = (float(self_v) - float(peer_v)) / float(peer_v) * 100
+                    peer_summary.append({
+                        "label": label,
+                        "unit": unit,
+                        "self": round(float(self_v), 1),
+                        "peer": round(float(peer_v), 1),
+                        "diff_pct": round(float(diff_pct), 1),
+                    })
+
+    # 확인 권장 — Top 신호에서 SIXBOX_GUIDE recommend 추출 (중복 제거 최대 5건)
+    recommends = []
+    seen_rids = set()
+    for s in top_signals:
+        rid = s["rule_id"]
+        if rid in seen_rids:
+            continue
+        seen_rids.add(rid)
+        guide = SIXBOX_GUIDE.get(rid)
+        if guide and guide.get("recommend"):
+            recommends.append({"rule_id": rid, "rule_name_ko": s["rule_name_ko"], "text": guide["recommend"]})
+        if len(recommends) >= 5:
+            break
+
+    return {
+        "school_name": detail_result.get("school_name", ""),
+        "district": detail_result.get("district", ""),
+        "school_type": detail_result.get("school_type", ""),
+        "score": round(score_f, 1),
+        "grade_label": grade_label,
+        "rank": rank_total,
+        "num_detections": detail_result.get("num_detections", 0),
+        "num_rules": detail_result.get("num_rules", 0),
+        "num_categories": len(det_cards),
+        "is_repeat": detail_result.get("is_repeat", False),
+        "year_range": f"{int(school_df['year'].min())}~{int(school_df['year'].max())}" if not school_df.empty else "",
+        "top_signals": top_signals,
+        "category_summary": cat_summary,
+        "peer_summary": peer_summary,
+        "recommends": recommends,
+    }
+
+
 SEOUL_DISTRICTS_25 = [
     "강남", "강동", "강북", "강서", "관악", "광진", "구로", "금천", "노원", "도봉",
     "동대문", "동작", "마포", "서대문", "서초", "성동", "성북", "송파", "양천", "영등포",
@@ -1072,6 +1198,210 @@ def _data_basis(df: pd.DataFrame) -> dict:
     }
 
 
+# ── 공통 6박스 스키마 (룰 단위 + 챗봇 재사용) ──
+# 사용자 화면에 안정적으로 표시. LLM 미사용 → 응답 지연/실패에도 깨지지 않음.
+# 박스 6개 항목 (요청 사양):
+#   1. 핵심 발견 / 2. 수치 변화 / 3. 패턴 해석 / 4. 동료군 맥락 / 5. 정상 예외 가능성 / 6. 확인 권장
+# 룰 ID별 정적 가이드 — 3·5·6 박스는 룰 의미 기반 작성. 1·2·4는 detection·school_df로 자동 주입.
+
+SIXBOX_GUIDE = {
+    "C1-1": {
+        "pattern": "학생수와 학급수가 반대 방향으로 움직임. 자원 배분이 의도된 결과인지 확인 필요.",
+        "normal": "학급 신설·통폐합, 학년 정원 조정, 특수학급 별도 운영.",
+        "recommend": "학생수·학급수 입력 원본을 함께 확인하고, 학급 신설/통폐합 여부와 학생 전출입을 점검해 주세요.",
+    },
+    "C1-2": {
+        "pattern": "학생수와 학급수가 반대 방향(1학급 변동). C1-1보다 완만한 신호.",
+        "normal": "학급 1개 신설/폐지가 자연스러운 학교 규모 조정과 함께 일어난 경우.",
+        "recommend": "학급수 1학급 변동의 사유와 학생 전입·전출 추이를 함께 확인해 주세요.",
+    },
+    "C1-3": {
+        "pattern": "학생수는 안정(±5% 이내)인데 강사 제외 교원수가 10% 또는 5명 이상 변동.",
+        "normal": "정년 퇴임·임용·인사 발령 시기, 기간제 교원 비율 변화.",
+        "recommend": "교원 자격종별 집계 기준(강사 포함 여부)을 확인하고, 정원·기간제·강사 분류를 점검해 주세요.",
+    },
+    "C1-4": {
+        "pattern": "학급수 변동(0~1)은 작은데 강사 제외 교원수가 5명 이상 변동.",
+        "normal": "정년·퇴직·이동, 기간제 교원 일괄 임용.",
+        "recommend": "교원 분류 정확성과 학급 운영 기준을 함께 확인해 주세요.",
+    },
+    "C1-5": {
+        "pattern": "학생수는 안정인데 보직교사 2명 이상 변동.",
+        "normal": "학교 조직 개편, 부장 교사 인사 발령, 보직 분리/통합.",
+        "recommend": "보직 인사 발령 사유와 보직 분류 기준을 확인해 주세요.",
+    },
+    "C1-7": {
+        "pattern": "교원1인당학생수가 20% 이상 변동. 학생수 또는 교원수 단독 변화일 가능성.",
+        "normal": "학생 신·편입학 또는 교원 정원 조정.",
+        "recommend": "학생수·교원수 변화 원인을 분리해서 확인해 주세요.",
+    },
+    "C1-8": {
+        "pattern": "학급당 학생수가 1.5명 이상 급변. 학급수 또는 학생수 파싱 정확성 점검.",
+        "normal": "학급 신설/폐지가 학년 중간에 일어난 경우.",
+        "recommend": "학급수 원본 표기('28(3)' 등 괄호 포함 시 총학급수 파싱 정확성)를 우선 확인해 주세요.",
+    },
+    "C3-3A": {
+        "pattern": "피해학생 3명 이상 + 보호조치 0건 + 가해학생 존재(선도조치 수행 추정).",
+        "normal": "보호조치 미실시 사유, 보호조치 후 입력 누락, 가해학생 별도 조치 미입력.",
+        "recommend": "피해학생 보호조치 미실시 사유 또는 미입력 사유를 확인해 주세요. 가해학생 조치 별도 미입력 시 가해학생수 포함 여부도 점검합니다.",
+    },
+    "C3-3B": {
+        "pattern": "피해학생 1~2명 + 보호조치 0건 + 가해학생 존재. C3-3A보다 약한 신호.",
+        "normal": "보호조치 입력 누락, 학년도 기준 차이.",
+        "recommend": "보호조치·가해조치 입력 누락 여부를 확인하고, 학년도(공시연도 -1) 기준이 맞는지 함께 점검해 주세요.",
+    },
+    "B1-1": {
+        "pattern": "전년 10% 이상 변동 + 직전 2년 평균 대비 3배 — 갑자기 튄 해.",
+        "normal": "통폐합·정원 조정·이동, 신·편입학 일시 집중.",
+        "recommend": "직전 2년 평균 대비 변동 폭의 사유(통폐합·정원 조정·이동 등)를 확인해 주세요.",
+    },
+    "B1-2": {
+        "pattern": "전년 10% 이상 변동 — 단년 변동(시계열 부족 또는 3배 미만).",
+        "normal": "정원 변동, 인사 발령, 학생 일시 집중.",
+        "recommend": "변동 사유와 다음 해 추이까지 함께 확인해 주세요.",
+    },
+    "B1-3": {
+        "pattern": "학교회계 세입 또는 세출이 전년 대비 ±30% 변동.",
+        "normal": "1회성 사업 반영, 시설 확충, 정부 이전수입 조정.",
+        "recommend": "회계 카테고리별 변동 원인과 1회성/경상 구분을 확인해 주세요.",
+    },
+    "B1-4": {
+        "pattern": "학교회계 세입 또는 세출이 ±50% 변동. 강한 변동.",
+        "normal": "대규모 시설 사업, 정책 자금 일괄 반영.",
+        "recommend": "변동 카테고리·금액·사업명을 함께 확인해 주세요.",
+    },
+    "B1-5": {
+        "pattern": "진학률 15%p 이상 변동. 20%p 이상이면 강한 신호.",
+        "normal": "졸업생 분모 변동, 진학 분류 기준 변경(전문대·해외대 포함 여부).",
+        "recommend": "진학률 산정 분모와 진학 분류 기준을 확인해 주세요.",
+    },
+    "B1-6": {
+        "pattern": "학폭 심의 건수 0~1건에서 5건 이상으로 급증.",
+        "normal": "특정 사안 집중 발생, 학년도(공시연도 -1) 기준 차이.",
+        "recommend": "학폭 심의 건수의 학년도 기준(공시연도 -1)을 확인하고, 실태조사 결과와 함께 점검해 주세요.",
+    },
+    "C2-3": {
+        "pattern": "학생수 안정(±5%)인데 급식비 ±10% 변동.",
+        "normal": "단가 변동, 운영 업체 변경, 식수 일시 변동.",
+        "recommend": "급식비 입력단위(천원)와 사업 항목 분류를 확인해 주세요.",
+    },
+    "C2-3+": {
+        "pattern": "급식비 ±30% 강한 변동. 단위 혼동(천원↔원) 가능성.",
+        "normal": "1회성 사업, 정책 자금 반영.",
+        "recommend": "급식비 단위 혼동 또는 1회성 사업 반영 여부를 우선 확인해 주세요.",
+    },
+    "D2-1": {
+        "pattern": "동료군(같은 구·연도) 백분위 10% 미만 또는 90% 초과 — 상위·하위 10%.",
+        "normal": "학교 유형 특성(소규모·예술·특수), 시설 차이.",
+        "recommend": "학교 유형 특성을 고려해 동료군 정의가 적정한지 확인해 주세요.",
+    },
+    "D2-2": {
+        "pattern": "IQR 1.5배 외부 또는 중앙값 대비 50% 이상 차이 — 강한 극단값.",
+        "normal": "학교 유형(소규모·예술고 등), 시설 차이, 사업 특성.",
+        "recommend": "학교 유형 특성에 따른 정상 예외 가능성을 확인하고, 동료군 정의가 적정한지 함께 점검해 주세요.",
+    },
+    "C5-1": {
+        "pattern": "전년 1학년 → 당해 2학년 진급률이 -7~+3% 범위 밖. 자퇴·전출 집중 가능.",
+        "normal": "신·편입학·전출입·자퇴·휴학·검정고시 전환.",
+        "recommend": "신·편입학, 전출·전입, 자퇴·휴학 등 학생수 변동 사유를 확인해 주세요.",
+    },
+    "E1-1": {
+        "pattern": "시설 컬럼이 3년 연속 미입력(NaN). 미입력 vs 시설 미보유 구분이 어려움.",
+        "normal": "해당 시설 미보유, 입력 항목 누락.",
+        "recommend": "해당 시설의 보유 여부와 입력 누락 여부를 확인해 주세요.",
+    },
+    "E1-2": {
+        "pattern": "동료군 입력률 90% 이상인데 본교만 미입력 — 단독 누락 신호.",
+        "normal": "본교만 해당 시설 미보유, 입력 시기 차이.",
+        "recommend": "동료군 대비 본교만 미입력한 사유와 시설 보유 여부를 확인해 주세요.",
+    },
+    "E1-3": {
+        "pattern": "공시 의무 항목 미제출 점검 — 현재 학교 유형별 의무 항목 매핑 확인 대기.",
+        "normal": "—",
+        "recommend": "학교 유형별 공시 의무 항목 매핑이 확정되면 실 탐지를 수행합니다.",
+    },
+    "E2-2": {
+        "pattern": "3년간 동일 수치 반복(노이즈 정수 0~5 제외). 미갱신 가능성 점검.",
+        "normal": "실제 변동 없음, 단위·산식·반올림 동일 유지.",
+        "recommend": "3년간 동일 수치가 실제 변동 없음인지, 입력 갱신 누락인지 확인해 주세요.",
+    },
+    "F1'-1": {
+        "pattern": "학교알리미(강사 제외) vs KESS 교원수 차이 3명 이상.",
+        "normal": "강사 포함/미포함 기준 차이, 발령 시점 차이.",
+        "recommend": "학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.",
+    },
+    "G1-1": {
+        "pattern": "단년 변동은 작지만 3년 같은 방향으로 누적 8% 이상 변화. B1 단년 급변에는 안 잡힘.",
+        "normal": "지역 인구 변화, 학교 운영 변화, 정책 영향, 물가 상승.",
+        "recommend": "3년 누적 변동의 사유(인구·운영·정책·물가 등)를 함께 확인하고 추세를 지속 모니터링해 주세요.",
+    },
+}
+
+
+def _build_sixbox(rule, school_df, full_df, district):
+    """공통 6박스 — 룰 1개 + 학교 시계열 → 6박스 dict.
+    LLM 미사용. detection·school_df 데이터로 자동 주입. 룰 ID 미등록 시 기본 가이드."""
+    rid = rule.get("rule_id", "")
+    guide = SIXBOX_GUIDE.get(rid, {
+        "pattern": "본교 수치와 동료군 추이를 함께 확인할 신호입니다.",
+        "normal": "—",
+        "recommend": "본교 값과 동료군 값을 비교하여 정상 예외 가능성과 입력 정확성을 확인해 주세요.",
+    })
+    # 1. 핵심 발견 — detection.detail (또는 룰명 기반 폴백)
+    finding = rule.get("detail", "") or rule.get("rule_name_ko", "")
+    # 2. 수치 변화 — col_pairs 첫 컬럼의 3년 시계열
+    numbers = ""
+    if not school_df.empty and rule.get("col_keys"):
+        first_key = rule["col_keys"][0]
+        if first_key in school_df.columns:
+            yrs = sorted(school_df["year"].unique())
+            vals = []
+            for y in yrs:
+                row = school_df[school_df["year"] == y]
+                if not row.empty and pd.notna(row[first_key].iloc[0]):
+                    v = float(row[first_key].iloc[0])
+                    vals.append(f"{int(v):,}" if v == int(v) else f"{v:.1f}")
+                else:
+                    vals.append("—")
+            label = rule.get("col_labels", [first_key])[0] if rule.get("col_labels") else first_key
+            numbers = f"{label}: " + " → ".join(vals)
+    # 3. 패턴 해석 — 룰 정적 가이드
+    pattern = guide["pattern"]
+    # 4. 동료군 맥락 — col_pairs 첫 컬럼의 동료군 평균(최근 연도)
+    peer = ""
+    if not school_df.empty and rule.get("col_keys") and district:
+        first_key = rule["col_keys"][0]
+        peer_col = f"{first_key}_dist_mean"
+        if peer_col in school_df.columns:
+            last_yr = sorted(school_df["year"].unique())[-1]
+            last_row = school_df[school_df["year"] == last_yr]
+            if not last_row.empty and pd.notna(last_row[peer_col].iloc[0]):
+                p = float(last_row[peer_col].iloc[0])
+                self_v = last_row[first_key].iloc[0] if first_key in last_row.columns and pd.notna(last_row[first_key].iloc[0]) else None
+                label = rule.get("col_labels", [first_key])[0] if rule.get("col_labels") else first_key
+                if self_v is not None:
+                    s = float(self_v)
+                    diff_pct = ((s - p) / p * 100) if p != 0 else 0
+                    sign = "+" if diff_pct >= 0 else ""
+                    peer = f"{district}구 동료군 평균 {p:.1f} 대비 본교 {s:.1f} ({sign}{diff_pct:.1f}%)"
+                else:
+                    peer = f"{district}구 동료군 평균 {p:.1f}"
+    if not peer:
+        peer = "동료군 비교 데이터가 제한적입니다."
+    # 5. 정상 예외 가능성 — 룰 정적 가이드
+    normal = guide["normal"]
+    # 6. 확인 권장 — 룰 정적 가이드
+    recommend = guide["recommend"]
+    return {
+        "finding": finding,
+        "numbers": numbers,
+        "pattern": pattern,
+        "peer": peer,
+        "normal": normal,
+        "recommend": recommend,
+    }
+
+
 # 룰 → 관련 컬럼 매핑 (Evidence Chart·룰 카드 표시용)
 RULE_COLUMNS = {
     "C1-1":  [("학생수","student_count"), ("학급수","class_count")],
@@ -1099,6 +1429,7 @@ RULE_COLUMNS = {
     "E1-3":  [],
     "E2-2":  [("학급수","class_count"), ("교원수","teacher_count"), ("학생수","student_count")],
     "F1'-1": [("교원수(강사제외)","teacher_count_no_instructor")],
+    "G1-1":  [("학생수","student_count"), ("교원수","teacher_count"), ("진학률(%)","graduation_rate"), ("1인당급식비(원)","meal_cost_per_student")],
 }
 
 
@@ -1128,7 +1459,7 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
                          for label, k in RULE_COLUMNS.get(rid, [])]
         col_keys = [p["key"] for p in col_pairs]
         col_labels = [p["label"] for p in col_pairs]
-        cat_groups[cat_ko]["rules"].append({
+        rule_obj = {
             "rule_id": rid,
             "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
             "year": int(d.get("year", 0)),
@@ -1137,7 +1468,9 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
             "col_labels": col_labels,    # 표시용 (한국어)
             "col_keys": col_keys,        # 매칭용 (영문 컬럼 ID)
             "col_pairs": col_pairs,      # 짝 보존 — 프론트 차트가 우선 사용
-        })
+        }
+        rule_obj["sixbox"] = _build_sixbox(rule_obj, school_df, full_df, district)
+        cat_groups[cat_ko]["rules"].append(rule_obj)
 
     # 카테고리별로 관련 컬럼 데이터 테이블 생성
     # — detection 단위 col_label/col_key가 있는 룰은 그 컬럼 우선, 없으면 RULE_COLUMNS 기본
@@ -1401,6 +1734,7 @@ def _fallback_analysis(query: str, df: pd.DataFrame, columns: dict) -> ChatRespo
         report="기본 데이터를 표시합니다.",
         confidence="중간",
         follow_up_suggestions=["급식비 추이 분석", "학폭 패턴 분석"],
+        sixbox=None,
     )
 
 

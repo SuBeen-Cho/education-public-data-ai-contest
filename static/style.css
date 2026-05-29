@@ -726,6 +726,25 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .pr-lg-dot.avg{background:var(--text-sub);width:2px;height:12px;border-radius:1px}
 .pr-lg-dot.self{background:var(--cobalt);border:2px solid #fff;box-shadow:0 0 0 1px var(--cobalt)}
 .pr-lg-bar{width:24px;height:6px;background:linear-gradient(90deg,#E0E7FF 0%,#C7D2FE 50%,#E0E7FF 100%);border-radius:3px;flex-shrink:0}
+
+/* ── Drift Trend (G1-1) ── */
+.ev-drift .dr-grid{display:grid;grid-template-columns:1fr 130px;gap:14px;align-items:stretch}
+.ev-drift .dr-chart-wrap{background:var(--white);border:1px solid var(--border-light);border-radius:6px;padding:10px;min-height:220px;position:relative}
+.ev-drift .dr-chart-wrap > canvas{height:200px!important}
+.ev-drift .dr-stats{display:flex;flex-direction:column;gap:6px}
+.ev-drift .dr-stat{background:var(--white);border:1px solid var(--border-light);border-radius:6px;padding:9px 11px;text-align:center}
+.ev-drift .dr-stat-lb{font-size:9.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px}
+.ev-drift .dr-stat-vl{font-size:18px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.1}
+.ev-drift .dr-stat-sub{font-size:10px;color:var(--text-muted);margin-top:2px;font-weight:600}
+.ev-drift .dr-stat.down{border-left:3px solid var(--red)}
+.ev-drift .dr-stat.down .dr-stat-vl{color:var(--red)}
+.ev-drift .dr-stat.up{border-left:3px solid var(--green)}
+.ev-drift .dr-stat.up .dr-stat-vl{color:var(--green)}
+.ev-drift .dr-stat.strong{border-left:3px solid var(--cobalt)}
+.ev-drift .dr-stat.strong .dr-stat-vl{color:var(--cobalt)}
+@media(max-width:900px){
+  .ev-drift .dr-grid{grid-template-columns:1fr}
+}
 .md-chart-caption{font-size:11px;color:var(--text-sub);font-style:italic;margin-top:6px;padding:6px 10px;background:var(--cobalt-bg);border-left:2px solid var(--cobalt);border-radius:4px;line-height:1.5}
 .md-detail-num-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;table-layout:fixed}
 .md-detail-num-table th{background:var(--gray-50);padding:6px 10px;text-align:right;font-weight:700;color:var(--text-sub);border-bottom:1px solid var(--border);font-size:10.5px;white-space:nowrap;word-break:keep-all}
@@ -737,6 +756,36 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .md-detail-num-table td.md-detected{background:var(--cell-danger);color:#fff;font-weight:700}
 .md-detail-num-table td.md-peer{color:var(--text-muted);font-style:italic}
 .md-detail-rec{background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:4px;padding:9px 12px;font-size:12px;color:#7A3F00;line-height:1.55;margin-top:6px}
+.md-detail-rec b{font-weight:800}
+
+/* ===== 공통 6박스 그리드 (룰 단위 + 챗봇 재사용) ===== */
+.sb-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px}
+.sb-card{background:var(--white);border:1px solid var(--border-light);border-radius:6px;padding:10px 12px;min-height:88px}
+.sb-card.sb-finding{border-left:3px solid var(--cobalt)}
+.sb-card.sb-numbers{border-left:3px solid #0F2A4A}
+.sb-card.sb-pattern{border-left:3px solid #7B5EA0}
+.sb-card.sb-peer{border-left:3px solid #5B8BA0}
+.sb-card.sb-normal{border-left:3px solid var(--green)}
+.sb-card.sb-recommend{border-left:3px solid var(--amber)}
+.sb-h{display:flex;align-items:center;gap:5px;margin-bottom:5px;font-size:10.5px;font-weight:800;color:var(--text-sub);text-transform:none;letter-spacing:0;line-height:1.3}
+.sb-i{font-size:13px;line-height:1}
+.sb-lb{white-space:nowrap}
+.sb-v{font-size:12px;line-height:1.6;color:var(--text);word-break:keep-all;overflow-wrap:break-word}
+.sb-card.sb-numbers .sb-v{font-variant-numeric:tabular-nums;font-weight:600}
+.sb-card.sb-recommend .sb-v{color:#7A3F00}
+.sb-empty{padding:18px;text-align:center;color:var(--text-muted);font-size:11.5px;background:var(--gray-50);border-radius:5px}
+@media(max-width:900px){
+  .sb-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:600px){
+  .sb-grid{grid-template-columns:1fr}
+}
+
+/* ===== 챗봇 안 6박스 (좁은 패널이라 1열) ===== */
+.chat-card .sb-grid{grid-template-columns:1fr;gap:5px;margin-top:6px}
+.chat-card .sb-card{padding:6px 8px;min-height:0}
+.chat-card .sb-card .sb-h{font-size:10px;margin-bottom:3px}
+.chat-card .sb-card .sb-v{font-size:11.5px;line-height:1.5}
 .md-detail-rec b{color:var(--amber);font-weight:800}
 .md-empty{padding:40px;text-align:center;color:var(--text-muted);font-size:12px}
 
@@ -790,6 +839,90 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .exp-link-box .elb-text b{color:var(--navy)}
 .exp-link-box a{font-size:12px;color:var(--cobalt);font-weight:800;text-decoration:none;white-space:nowrap}
 .exp-link-box a:hover{text-decoration:underline}
+
+/* ===== 자가진단 리포트 (학교 상세 끝) ===== */
+.sr-wrap{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:18px}
+.sr-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:14px;border-bottom:2px solid var(--navy);margin-bottom:16px}
+.sr-head-name{font-size:20px;font-weight:800;color:var(--navy);letter-spacing:-0.02em;line-height:1.3}
+.sr-head-meta{font-size:11.5px;color:var(--text-sub);margin-top:3px;font-weight:600}
+.sr-print-btn{padding:7px 14px;background:var(--navy);color:#fff;border:none;border-radius:5px;font:12px var(--font);font-weight:700;cursor:pointer;white-space:nowrap}
+.sr-print-btn:hover{background:var(--cobalt)}
+.sr-summary-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px;margin-bottom:18px}
+.sr-sum-card{background:var(--gray-50);border:1px solid var(--border-light);border-radius:6px;padding:14px;text-align:center}
+.sr-sum-card.sr-lead{background:linear-gradient(180deg,var(--white) 0%,var(--cobalt-bg) 100%);border:2px solid var(--cobalt)}
+.sr-sum-lb{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:5px}
+.sr-sum-vl{font-size:28px;font-weight:900;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.1}
+.sr-sum-card.sr-lead .sr-sum-vl{color:var(--cobalt);font-size:34px}
+.sr-sum-vl small{font-size:13px;color:var(--text-muted);font-weight:700;margin-left:2px}
+.sr-sum-sub{font-size:11px;color:var(--text-sub);margin-top:6px;font-weight:600}
+
+.sr-section-h{font-size:11.5px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:0.06em;margin:18px 0 8px;display:flex;align-items:center;gap:6px}
+.sr-section-h::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+
+/* Top 신호 리스트 */
+.sr-top-list{display:flex;flex-direction:column;gap:6px}
+.sr-top-row{display:grid;grid-template-columns:34px 1fr;gap:10px;background:var(--gray-50);border-left:3px solid var(--cobalt);border-radius:5px;padding:9px 12px;align-items:flex-start}
+.sr-top-rank{width:28px;height:28px;border-radius:50%;background:var(--cobalt);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+.sr-top-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.4}
+.sr-top-rid{font-family:var(--mono);font-size:10px;color:var(--cobalt);background:var(--white);padding:1px 5px;border-radius:3px;font-weight:700;margin-left:4px;vertical-align:middle}
+.sr-top-meta{font-size:10.5px;color:var(--text-muted);font-weight:600;margin-top:2px}
+.sr-top-detail{font-size:11.5px;color:var(--text-sub);margin-top:4px;line-height:1.5}
+
+/* 카테고리 요약 */
+.sr-cat-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.sr-cat-row{display:flex;align-items:center;gap:6px;background:var(--gray-50);border:1px solid var(--border-light);border-radius:4px;padding:7px 11px;font-size:12px}
+.sr-cat-row.repeat{border-left:3px solid var(--amber);background:var(--amber-bg)}
+.sr-cat-name{flex:1;font-weight:700;color:var(--text)}
+.sr-cat-code{font-family:var(--mono);font-size:9.5px;color:var(--cobalt);background:var(--cobalt-bg);padding:1px 5px;border-radius:3px;font-weight:700}
+.sr-cat-cnt{font-size:10.5px;color:var(--text-sub);font-variant-numeric:tabular-nums;font-weight:600}
+
+/* 동료군 대비 */
+.sr-peer-list{display:flex;flex-direction:column;gap:5px}
+.sr-peer-row{display:grid;grid-template-columns:120px 1fr 64px;gap:10px;align-items:center;background:var(--gray-50);border-radius:4px;padding:8px 12px;font-size:12px}
+.sr-peer-row.sig{background:var(--amber-bg);border-left:3px solid var(--amber)}
+.sr-peer-row.mid{background:#FFFAF0;border-left:3px solid #F59E0B}
+.sr-peer-lb{font-weight:700;color:var(--text-sub)}
+.sr-peer-vl{color:var(--text);font-variant-numeric:tabular-nums}
+.sr-peer-vl b{font-weight:800;color:var(--navy)}
+.sr-peer-unit{font-size:10px;color:var(--text-muted);margin-left:3px}
+.sr-peer-diff{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;font-size:13px;color:var(--text);white-space:nowrap}
+.sr-peer-row.sig .sr-peer-diff{color:var(--amber)}
+
+/* 확인 권장 */
+.sr-rec-list{display:flex;flex-direction:column;gap:6px}
+.sr-rec-row{display:grid;grid-template-columns:22px auto 1fr;gap:8px;background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:0 4px 4px 0;padding:8px 12px;font-size:11.5px;align-items:start}
+.sr-rec-n{width:18px;height:18px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:10.5px;flex-shrink:0;margin-top:1px}
+.sr-rec-name{font-weight:700;color:#7A3F00;white-space:nowrap}
+.sr-rec-text{color:#7A3F00;line-height:1.55}
+
+.sr-foot{margin-top:14px;padding-top:10px;border-top:1px dashed var(--border-light);font-size:10.5px;color:var(--text-muted);line-height:1.6;font-style:italic}
+.sr-empty{padding:32px;text-align:center;color:var(--text-muted);font-size:12.5px;background:var(--white);border:1px dashed var(--border);border-radius:6px}
+
+@media(max-width:768px){
+  .sr-summary-grid{grid-template-columns:1fr}
+  .sr-peer-row{grid-template-columns:1fr;text-align:left}
+  .sr-rec-row{grid-template-columns:22px 1fr}
+  .sr-rec-row .sr-rec-name{white-space:normal}
+}
+
+/* ===== Print (출력 미리보기) — 학교 상세 페이지 인쇄 시 자가진단 리포트만 보이게 ===== */
+@media print {
+  header.nav, .back-bar, .school-header, .ai-summary-wrap, .sd-summary-grid,
+  .section-title, .md-grid, .full-table-details, .chat-fab, .chat-panel,
+  .filter-panel, .stats-panel, .nav-tabs, .index-info-note, .top3-grid,
+  .page-title, footer.page-footer, .stype-tabs, .region-grid, .nat-note,
+  .dash-grid, .list-area, .list-panel { display: none !important; }
+  body { background: #fff; }
+  main { padding: 0; max-width: none; }
+  .sr-wrap { border: none; padding: 0; }
+  .sr-print-btn { display: none !important; }
+  .sr-head { border-bottom: 2px solid #000; }
+  .sr-foot { color: #666; }
+  .view { display: block !important; }
+  #self-report-section { display: block !important; }
+  /* 자가진단 리포트 섹션 제목은 인쇄 시 표시 */
+  #view-school > .section-title:last-of-type { display: block !important; font-size: 22px; }
+}
 
 /* legacy support — show old filter row hidden in new layout */
 .dash-grid .filter-row{display:none}
