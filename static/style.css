@@ -147,18 +147,23 @@ table.list th{background:var(--gray-50);padding:10px 16px;text-align:left;font-s
 table.list td{padding:11px 16px;border-bottom:1px solid var(--border-light);vertical-align:middle}
 table.list tr:hover td{background:var(--gray-50);cursor:pointer}
 table.list tr:last-child td{border-bottom:none}
-/* 학교 목록 컬럼 폭 — §9: 짧은 컬럼 고정, 학교명 가장 넓게 */
-table.list{table-layout:fixed;width:100%}
+/* 학교 목록 컬럼 폭 — §9: table-layout fixed면 명시 width 필요(min-width 무시됨).
+   행 정렬은 top 기준 (긴 학교명 2줄·카테고리 칩 2줄에도 정렬 일관). */
+table.list{table-layout:fixed;width:100%;font-size:13.5px}
+table.list th{padding-top:11px;padding-bottom:11px;font-size:11px}
+table.list td{padding-top:13px;padding-bottom:13px;vertical-align:top}
 table.list th:nth-child(1){width:54px}    /* 순위 */
-table.list th:nth-child(3){width:130px}   /* 구·유형 */
-table.list th:nth-child(4){width:260px}   /* 탐지 카테고리 */
-table.list th:nth-child(5){width:148px;text-align:right}  /* 지수 */
-td.rank-cell{font-weight:800;color:var(--cobalt);font-variant-numeric:tabular-nums}
-td.school-cell{font-weight:700;color:var(--text);word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.4}
-td.dist-cell{color:var(--text-sub);font-size:12px}
-td.cats-cell{}
+table.list th:nth-child(2){width:auto}    /* 학교명 — 나머지 자동 (가장 넓음) */
+table.list th:nth-child(3){width:100px}   /* 구·유형 */
+table.list th:nth-child(4){width:248px}   /* 탐지 카테고리 — 칩 두 줄 안전 */
+table.list th:nth-child(5){width:138px;text-align:right}  /* 지수 */
+td.rank-cell{font-weight:800;color:var(--cobalt);font-variant-numeric:tabular-nums;padding-top:14px!important}
+td.school-cell{font-weight:700;color:var(--text);word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.45;font-size:13.5px}
+td.dist-cell{color:var(--text-sub);font-size:12px;line-height:1.45;padding-top:14px!important}
+td.cats-cell{line-height:1.5}
+.cat-mini{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;background:var(--gray-100);color:var(--text-sub);margin:2px 4px 2px 0;line-height:1.4;white-space:nowrap}
 td.stars-cell{width:80px;color:var(--cobalt);font-weight:800;letter-spacing:1px}
-td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right;color:var(--navy);white-space:nowrap}
+td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right;color:var(--navy);white-space:nowrap;padding-top:13px!important}
 .cat-mini{display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:var(--gray-100);color:var(--text-sub);margin:1px 3px 1px 0}
 
 /* ===== FOOTER ===== */

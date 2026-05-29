@@ -122,17 +122,14 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
         except (AttributeError, ValueError):
             pass
 
-    # 6. 결과 반환
+    # 6. 결과 반환 — 정책: result 변수 명시 할당만 인정. 폴백 모두 폐기.
     result = local_vars.get("result")
     if result is None:
-        # result 변수가 설정되지 않았으면 마지막 할당된 DataFrame 찾기
-        for key, val in local_vars.items():
-            if key not in ("df", "pd", "np", "result") and isinstance(val, (pd.DataFrame, pd.Series)):
-                result = val
-                break
-
-    if result is None:
-        result = local_vars.get("df", safe_df)
+        # 정책: "마지막 DataFrame 검색" + "전체 df 반환" fallback 모두 폐기.
+        # result 미정의 = "코드는 실행됐지만 결과를 받지 못한" 실패 상황.
+        # 호출부 try/except에서 fallback_help 안내 응답으로 라우팅됨.
+        # (정상 빈 결과(0건 DataFrame)와 구분 — 그건 빈 DataFrame을 그대로 반환.)
+        raise RuntimeError("result 변수가 정의되지 않았습니다. pandas 코드가 'result = ...'에 할당하지 않음.")
 
     if isinstance(result, pd.Series):
         result = result.to_frame()

@@ -870,7 +870,7 @@ function _ruleChartCaption(rule) {
     'C5-1': '학생수 변동이 자연 감소 범위(-7~+3%)를 벗어났습니다. 신·편입학 또는 전출 사유를 확인합니다.',
     'E2-2': '3년간 동일 수치는 데이터 미갱신 가능성을 확인할 신호입니다.',
     "F1'-1": '학교알리미와 KESS 교원수 차이는 강사 포함/미포함 기준 차이일 수 있습니다.',
-    'G1-1': '단년 급변은 없지만 3년에 걸쳐 같은 방향으로 누적 변화가 일어난 패턴입니다. B1(단년 급변동)에는 안 잡히지만 추세 자체를 확인할 신호입니다.',
+    'G1-1': '단년 급변은 없지만 다년에 걸쳐 같은 방향으로 누적 변화가 일어난 패턴입니다. B1(단년 급변동)에는 안 잡히는 누적 변화를 확인할 신호입니다. (본교 단일 시계열 기준 · 동료군 대비 비교는 G1-2/G1-3 후속 룰로 검토)',
   };
   return map[rule.rule_id] || '본교 시계열과 동료군(같은 구) 비교를 통해 확인이 필요한 지표입니다.';
 }
@@ -891,7 +891,7 @@ function _ruleRecommendation(rule) {
     'C5-1': '<b>확인 권장</b>: 신·편입학, 전출·전입, 자퇴·휴학 등 학생수 변동 사유를 확인해 주세요.',
     'E2-2': '<b>확인 권장</b>: 3년간 동일 수치가 실제 변동 없음인지, 입력 갱신 누락인지 확인해 주세요.',
     "F1'-1": '<b>확인 권장</b>: 학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.',
-    'G1-1': '<b>확인 권장</b>: 3년 누적 변동의 사유(인구 변화·학교 운영 변화·정책 영향 등)를 함께 확인해 주세요. 단년 급변 룰(B1)에는 잡히지 않지만 추세 자체는 지속 모니터링 권장.',
+    'G1-1': '<b>확인 권장</b>: 다년 누적 변동의 사유(인구 변화·학교 운영 변화·정책 영향 등)를 함께 확인해 주세요. 단년 급변 룰(B1)에는 잡히지 않지만 누적 추세는 지속 모니터링 권장.',
   };
   return map[rule.rule_id] || '<b>확인 권장</b>: 본교 값과 동료군 값을 비교하여 정상 예외 가능성과 입력 정확성을 확인해 주세요.';
 }
@@ -1566,7 +1566,20 @@ function bindChat() {
     panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true'); fab.classList.remove('hidden');
   };
   document.getElementById('chat-send').onclick = () => sendChat();
-  document.getElementById('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+  // IME(한글) 조합 중 Enter는 무시 — 조합 종료 후 보낼 때만 sendChat 호출
+  const chatInput = document.getElementById('chat-input');
+  let _chatComposing = false;
+  chatInput.addEventListener('compositionstart', () => { _chatComposing = true; });
+  chatInput.addEventListener('compositionend', () => { _chatComposing = false; });
+  chatInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    // 1) compositionstart/end 추적값으로 1차 차단
+    // 2) Safari 등에서 isComposing이 정확한 경우의 보조 가드
+    // 3) keyCode 229는 IME가 키 입력을 가로채는 경우의 보수적 가드
+    if (_chatComposing || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    sendChat();
+  });
 }
 
 function updateChatContext() {
@@ -1626,11 +1639,23 @@ function _chatMiniCard(row) {
   </div>`;
 }
 
+let _chatPending = false;
 async function sendChat(text) {
-  const query = text || document.getElementById('chat-input').value.trim();
-  if (!query) return;
-  document.getElementById('chat-input').value = '';
-  document.getElementById('chat-send').disabled = true;
+  // pending 중 추가 호출 무시 — Enter 연타·버튼 연속 클릭·예제 칩 중복 클릭 모두 가드
+  if (_chatPending) return;
+  const inputEl = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+  // 입력 정규화 — 전송 전 trim. text 인자도 안전하게 string 변환.
+  const raw = (text != null ? String(text) : (inputEl ? inputEl.value : ''));
+  const query = raw.replace(/​/g, '').trim();
+  if (!query) {
+    // 빈 입력은 서버로 안 보내고 프론트에서 짧게 안내. 사용자 메시지(빈 말풍선)도 표시 안 함.
+    addMsg('system', '<span style="color:var(--text-muted)">질문을 입력해 주세요.</span>');
+    return;
+  }
+  _chatPending = true;
+  if (inputEl) inputEl.value = '';
+  if (sendBtn) sendBtn.disabled = true;
   addMsg('user', query);
   const lid = addMsg('system', '<span style="color:var(--text-muted)">분석 중…</span>');
   try {
@@ -1691,8 +1716,11 @@ async function sendChat(text) {
     removeMsg(lid);
     console.warn('[chat] 응답 실패', e);
     addMsg('system', `<span style="color:var(--text-sub)">${FALLBACK_AI_TEXT}</span>`);
+  } finally {
+    _chatPending = false;
+    const sendBtn2 = document.getElementById('chat-send');
+    if (sendBtn2) sendBtn2.disabled = false;
   }
-  document.getElementById('chat-send').disabled = false;
 }
 
 // ===== ADVANCED PREVIEW (제안 2 LLM 자동 규칙 생성기 + 제안 4 이상 전파 추적) =====

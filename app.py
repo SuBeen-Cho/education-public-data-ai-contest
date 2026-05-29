@@ -510,13 +510,37 @@ async def chat_explore(req: ChatRequest):
     detections = app_state.get("detections", pd.DataFrame())
 
     if df_full.empty:
+        _log_route("fallback_help", req.query)
         return _chat_fallback_response("데이터가 아직 로드되지 않았습니다.", req.query)
 
-    # #6 우선순위·Top·1위 류 질의는 LLM 안 거치고 scores/detections로 직접 응답
-    # (학교 단일 컨텍스트면 우회 안 함 — 그 학교 내부 질문일 가능성)
+    # ── deterministic guards (Gemini 호출 전 1차 분기) ──
+    # 의도가 명확하고 LLM이 답할 게 없는 입력만 가로챔. 애매하면 Gemini로.
+    # 학교 컨텍스트가 없을 때만 적용 (학교 상세 안에서의 후속 질문은 모두 LLM으로).
     if not req.school_code:
+        # 1) 인사 + 무의미 입력
+        gr = _handle_greeting_query(req.query)
+        if gr is not None:
+            _log_route(gr["plan"]["analysis_plan"].split(": ")[-1], req.query)
+            return ChatResponse(**gr)
+        # 2) 감사/종료
+        th = _handle_thanks_query(req.query)
+        if th is not None:
+            _log_route("thanks", req.query)
+            return ChatResponse(**th)
+        # 3) 사용법/정체성
+        hp = _handle_help_query(req.query)
+        if hp is not None:
+            _log_route("help", req.query)
+            return ChatResponse(**hp)
+        # 4) 데이터 범위 밖 (날씨·주식·시간 등 명백한 무관 의도)
+        rg = _handle_range_guard_query(req.query)
+        if rg is not None:
+            _log_route("range_guard", req.query)
+            return ChatResponse(**rg)
+        # 5) 우선순위/Top/N위 — scores/detections로 직접 응답
         pri = _handle_priority_query(req.query, df_full, scores, detections)
         if pri is not None:
+            _log_route("priority", req.query)
             return ChatResponse(**pri)
 
     # 학교 컨텍스트 필터
@@ -524,12 +548,14 @@ async def chat_explore(req: ChatRequest):
     if req.school_code:
         df = df[df["school_code"] == req.school_code].copy()
         if df.empty:
+            _log_route("fallback_help", req.query)
             return _chat_fallback_response(f"학교 코드 {req.school_code}의 데이터를 찾지 못했습니다.", req.query)
 
     columns_desc = app_state.get("columns", {})
     client = app_state.get("gemini")
 
     if not client:
+        _log_route("fallback_help", req.query)
         return _fallback_analysis(req.query, df, columns_desc)
 
     # 학교명 조회 (실명만)
@@ -544,21 +570,33 @@ async def chat_explore(req: ChatRequest):
         plan = _get_analysis_plan(client, req.query, columns_desc, req.history)
     except GeminiError as e:
         print(f"[WARN] chat plan Gemini 실패: {e}")
+        _log_route("fallback_help", req.query)
         return _chat_fallback_response(FALLBACK_AI_TEXT, req.query)
 
+    # JSON 파싱 실패(plan is None) — 기본 코드 fallback 폐기, 안내 응답으로
+    if plan is None:
+        _log_route("fallback_help", req.query)
+        return ChatResponse(**_build_fallback_help_response())
+
     # ── 2단계: 안전 실행 ──
-    code = plan.get("pandas_code", "result = df.head()")
+    # 정책: 기본 데이터표 fallback 제거. 실행 실패는 안내 응답으로, 정상 빈 결과는 별도 안내.
+    code = plan.get("pandas_code", "").strip()
+    if not code:
+        # LLM이 pandas_code를 못 만든 경우 — 분석 의도 불명확
+        print(f"[WARN] pandas_code 비어 있음. query='{req.query[:60]}'")
+        _log_route("fallback_help", req.query)
+        return ChatResponse(**_build_fallback_help_response())
+
     try:
         result_df = safe_execute(code, df)
     except Exception as e:
+        # 코드 생성은 됐는데 실행 단계 실패 — 안내 응답으로 (기본 데이터표 X)
         print(f"[WARN] pandas_code 실행 실패: {e}")
-        fallback_cols = ["school_name", "year", "student_count", "class_count", "teacher_count",
-                         "bullying_cases", "bullying_victims", "graduation_rate"]
-        available = [c for c in fallback_cols if c in df.columns]
-        result_df = df[available].sort_values("year") if available else df.head(5)
-        plan["confidence"] = "중간"
+        _log_route("fallback_help", req.query)
+        return ChatResponse(**_build_fallback_help_response())
 
     # ── 3단계: 결과 정리 (가명 컬럼 제거) ──
+    is_empty_df = isinstance(result_df, pd.DataFrame) and result_df.empty
     if isinstance(result_df, pd.DataFrame):
         # school_name_anon이 결과에 섞여 들어오면 제거 (실명 정책)
         if "school_name_anon" in result_df.columns:
@@ -567,6 +605,11 @@ async def chat_explore(req: ChatRequest):
     else:
         result_data_raw = []
     result_data = _rename_cols_ko(result_data_raw)
+
+    # 정상 실행 + 결과 0건 → "실패"가 아닌 정상 빈 결과 안내. 기본 데이터표 절대 X.
+    if is_empty_df or not result_data:
+        _log_route("empty_result", req.query)
+        return ChatResponse(**_build_empty_result_response(plan))
 
     # ── 4단계: 보고서 생성 (실패 시 폴백) ──
     try:
@@ -577,6 +620,7 @@ async def chat_explore(req: ChatRequest):
         plan["confidence"] = "중간"
 
     suggestions = _generate_suggestions(plan, result_data)
+    _log_route("llm", req.query)
 
     return ChatResponse(
         plan=plan, result_data=result_data,
@@ -585,6 +629,40 @@ async def chat_explore(req: ChatRequest):
         follow_up_suggestions=suggestions,
         sixbox=None,
     )
+
+
+def _build_fallback_help_response() -> dict:
+    """LLM이 코드 못 만들거나 실행 실패 — 안내 응답. 기본 데이터표 X."""
+    return {
+        "plan": {
+            "analysis_plan": "코드 생성/실행 단계에서 의도를 확정하지 못함",
+            "columns_used": [],
+            "criteria": "",
+            "pandas_code": "",
+            "comparison": "",
+            "confidence": "낮음",
+        },
+        "result_data": [],
+        "report": (
+            "질문을 이해하지 못했습니다. **학교명·지역·룰 ID·검토 신호** 중심으로 물어봐 주세요.\n\n"
+            "예: '노원구에서 학생수가 줄어든 학교' / '강남구 검토 우선도 1위 학교는?' / 'C5-1 진급 이탈 잡힌 학교'"
+        ),
+        "confidence": "낮음",
+        "follow_up_suggestions": _EXAMPLE_SUGGESTIONS,
+        "sixbox": None,
+    }
+
+
+def _build_empty_result_response(plan: dict) -> dict:
+    """정상 실행됐지만 결과 0건 — 실패 아님. 조건 조정 안내."""
+    return {
+        "plan": plan,
+        "result_data": [],
+        "report": "조건에 맞는 학교가 없습니다. 조건을 조금 넓혀 다시 확인해 주세요.",
+        "confidence": "높음",
+        "follow_up_suggestions": _EXAMPLE_SUGGESTIONS,
+        "sixbox": None,
+    }
 
 
 def _chat_fallback_response(message: str, query: str) -> ChatResponse:
@@ -608,6 +686,228 @@ def _chat_fallback_response(message: str, query: str) -> ChatResponse:
         ],
         sixbox=None,
     )
+
+
+# ──────────────────────────────────────────────────────────────
+# 챗봇 라우팅 / 가드 (Gemini 호출 전 deterministic 분기)
+# ──────────────────────────────────────────────────────────────
+# 라우팅 로그/카운터 — 내부용. 사용자 화면 노출 X.
+# 나중에 "LLM 호출 없이 처리한 질의 비율" 설명용으로 카운트만 남김.
+ROUTE_COUNTER: dict = {}
+
+
+def _log_route(route: str, query: str):
+    """라우팅 단계 카운트 + 로그 한 줄."""
+    ROUTE_COUNTER[route] = ROUTE_COUNTER.get(route, 0) + 1
+    safe = (query or "").replace("\n", " ")[:60]
+    print(f"[CHAT] route={route} · query='{safe}'")
+
+
+# 인사·감사·도움말은 "전체 메시지가 그 의도일 때만" 처리.
+# substring 매칭으로 잡으면 "안녕하세요, 개포고 학생수 알려줘"도 잡혀 실제 질의가 사라짐.
+# → 접두어 strip 후 남은 실질 질의가 없을 때만 가드 적용.
+
+_GREETING_PREFIXES = (
+    "안녕하세요", "안녕히 계세요", "안녕히 가세요", "안녕",
+    "반가워요", "반갑습니다", "반가워", "반갑",
+    "하이요", "하이", "ㅎㅇ", "hi", "hello", "hey",
+    "방가워요", "방가",
+    "굿모닝", "굿이브닝", "굿밤",
+)
+_THANKS_PREFIXES = (
+    "고맙습니다", "고마워요", "고마워", "고맙",
+    "감사합니다", "감사해요", "감사",
+    "수고하셨습니다", "수고했어", "수고",
+    "잘 가", "잘가", "잘 있어", "안녕히",
+    "thank you", "thanks", "thx", "ty",
+)
+_HELP_PHRASES = (
+    "넌 누구", "너는 누구", "당신은 누구", "넌 뭐", "너 뭐",
+    "뭐 할 수 있", "뭐할 수 있", "뭐가 가능", "할 수 있는 게",
+    "사용법", "어떻게 써", "어떻게 사용", "어떻게 쓰", "어떻게 동작",
+    "도움말", "헬프", "help", "사용 방법",
+    "어떤 질문", "어떤거 물어", "뭐 물어",
+    "넌 뭐야", "너는 뭐야", "정체",
+)
+# 의미 없는 짧은 입력 — 멀티턴 컨텍스트는 안 쓰므로 "?" 단독도 무의미 입력.
+_NOISE_INPUTS = ("ㅋㅋ", "ㅋㅋㅋ", "ㅎㅎ", "ㅎㅎㅎ", "ㅠㅠ", "ㅠ", "ㅗㅜ", "ㅇㅇ", "응", "넵", "넹", "...", "..", ".", "?", "??", "???")
+
+# 데이터 범위 밖 키워드 — 명백히 공시·교육 데이터와 무관한 질의
+_OUT_OF_SCOPE_KEYWORDS = (
+    "날씨", "기온", "비 와", "눈 와",
+    "주식", "코인", "비트코인", "환율", "금리",
+    "오늘 몇", "지금 몇 시", "지금 시각",
+    "요리", "레시피", "음식 추천", "맛집",
+    "노래 추천", "영화 추천", "드라마 추천",
+    "축구", "야구", "농구",
+    "번역", "영어로", "한자로",
+    "코딩", "프로그래밍", "파이썬", "javascript",
+    "친구", "연애", "사주", "운세",
+)
+
+
+def _strip_prefixes(q_low: str, prefixes: tuple) -> str:
+    """질의에서 인사/감사 접두어를 길이 긴 순으로 한 번 제거. 남은 문자열 반환."""
+    candidates = sorted(prefixes, key=lambda p: -len(p))
+    for kw in candidates:
+        if q_low.startswith(kw.lower()):
+            rest = q_low[len(kw):].lstrip(" ,.!?~^^。，！？")
+            return rest
+    return q_low
+
+
+def _is_noise_only(q: str) -> bool:
+    """무의미 입력(이모티콘·자음 반복 등) 단독 여부."""
+    if not q:
+        return True
+    if q in _NOISE_INPUTS:
+        return True
+    # 한글 자모/문장부호만 있고 의미 있는 글자 없는 경우
+    if len(q) <= 3 and not any(c.isalnum() and ord(c) > 127 for c in q) and not any(c.isalnum() and c.isascii() for c in q):
+        # alphanumeric 없음 + 한글 음절(가-힣) 없음 → 의미 X
+        if not any('가' <= c <= '힣' for c in q):
+            return True
+    return False
+
+
+def _build_simple_response(report: str, suggestions: list, route: str) -> dict:
+    """공통 안내 응답 빌더 — guard 분기 공용."""
+    return {
+        "plan": {
+            "analysis_plan": f"deterministic guard: {route}",
+            "columns_used": [],
+            "criteria": "",
+            "pandas_code": "",
+            "comparison": "",
+            "confidence": "높음",
+        },
+        "result_data": [],
+        "report": report,
+        "confidence": "높음",
+        "follow_up_suggestions": suggestions,
+        "sixbox": None,
+    }
+
+
+_EXAMPLE_SUGGESTIONS = [
+    "강남구 검토 우선도 1위 학교는?",
+    "우선 검토 신호만 요약해줘",
+    "노원구에서 학생수가 줄어든 학교",
+    "학교폭력 조치 확인 신호가 있는 학교는?",
+]
+
+
+def _handle_greeting_query(query: str):
+    """인사 가드 — 전체 메시지가 인사이거나, 인사 접두어 제거 후 남은 질의가 없을 때만 처리.
+    'ㅋㅋ' 같은 무의미 입력도 함께 처리."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    # 1) 무의미 입력 단독
+    if _is_noise_only(q):
+        report = (
+            "메시지가 비어 있거나 인식하지 못했습니다. 공시 데이터에 대해 질문해 주세요.\n\n"
+            "예: 노원구에서 학생수가 줄어든 학교 / 강남구 검토 우선도 1위 학교는?"
+        )
+        return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="empty_input")
+    # 2) 인사 접두어 strip → 남은 질의 있으면 greeting 아님
+    rest = _strip_prefixes(q.lower(), _GREETING_PREFIXES)
+    if rest:
+        return None
+    report = (
+        "안녕하세요. **EduData Watch 공시 데이터 챗봇**입니다.\n\n"
+        "공시 데이터에 자연어로 질문해 보세요. 예시:\n"
+        "- 강남구 검토 우선도 1위 학교는?\n"
+        "- 우선 검토 신호만 요약해줘\n"
+        "- 노원구에서 학생수가 줄어든 학교\n"
+        "- 학교 상세 화면에서 이 학교 1분 브리핑 생성\n\n"
+        "본 챗봇은 판정하지 않고 확인을 돕습니다. 자유롭게 물어봐 주세요."
+    )
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="greeting")
+
+
+def _handle_thanks_query(query: str):
+    """감사/종료 — 전체 메시지가 감사 의도일 때만."""
+    q = (query or "").strip()
+    if not q or len(q) > 30:
+        return None
+    rest = _strip_prefixes(q.lower(), _THANKS_PREFIXES)
+    if rest:
+        return None
+    report = "도움이 됐다면 다행입니다. 추가로 확인이 필요한 학교나 검토 신호가 있으면 언제든 물어봐 주세요."
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="thanks")
+
+
+def _handle_help_query(query: str):
+    """사용법/정체성 안내 — 핵심 문구 substring 매칭 (이건 의도가 명확해서 substring OK)."""
+    q = (query or "").strip()
+    if not q or len(q) > 40:
+        return None
+    q_low = q.lower()
+    if not any(p.lower() in q_low for p in _HELP_PHRASES):
+        return None
+    report = (
+        "**EduData Watch 공시 데이터 챗봇**입니다.\n\n"
+        "교육 공시 데이터(서울 3구 일반고 42교·2023~2025년)에 자연어로 질문하면, "
+        "결정론적 룰셋과 데이터 분석으로 검토 후보를 보여드립니다.\n\n"
+        "물어볼 수 있는 것:\n"
+        "- 학교명·구·룰 ID·검토 우선도 기준 조회\n"
+        "- 학생수·교원수·학폭·진학률·급식비 등 지표 변화\n"
+        "- 동료군(같은 구) 비교\n"
+        "- 우선순위·Top N\n\n"
+        "본 챗봇은 판정하지 않고 확인을 돕습니다."
+    )
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="help")
+
+
+def _handle_range_guard_query(query: str):
+    """공시 데이터 범위 밖 — 명백히 무관한 의도 (날씨·주식·시간 등)만 가드."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    q_low = q.lower()
+    if not any(k in q_low for k in _OUT_OF_SCOPE_KEYWORDS):
+        return None
+    report = (
+        "본 챗봇은 **교육 공시 데이터** 분석 도구입니다.\n\n"
+        "현재 표본 범위: 서울 **강남·노원·관악구** 일반고 **42교**, **2023~2025년** 공시.\n\n"
+        "이 범위 안에서 학교·지표·검토 신호에 대해 질문해 주세요."
+    )
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="range_guard")
+
+
+@app.get("/api/chat/route-stats")
+async def chat_route_stats():
+    """챗봇 라우팅 카운터 (내부용). 사용자 화면 노출 X.
+    LLM 호출 없이 처리한 비율 등을 발표·심사 자료로 활용.
+
+    분류:
+    - pre_llm_guard: Gemini 호출 전 deterministic 분기 (greeting/thanks/help/range_guard/priority/empty_input)
+    - llm_post: Gemini 거친 응답 (llm 정상 + empty_result 정상 빈결과 + fallback_help 실패안내)
+    """
+    total = sum(ROUTE_COUNTER.values()) or 0
+    by_route = dict(sorted(ROUTE_COUNTER.items(), key=lambda kv: -kv[1]))
+
+    pre_llm_routes = ("greeting", "thanks", "help", "priority", "range_guard", "empty_input")
+    pre_llm = sum(ROUTE_COUNTER.get(r, 0) for r in pre_llm_routes)
+
+    llm_post_routes = ("llm", "empty_result", "fallback_help")
+    llm_post = sum(ROUTE_COUNTER.get(r, 0) for r in llm_post_routes)
+
+    return {
+        "total": total,
+        "by_route": by_route,
+        "pre_llm_guard_count": pre_llm,
+        "llm_post_count": llm_post,
+        "pre_llm_ratio": round(pre_llm / total, 3) if total else 0.0,
+        "llm_post_ratio": round(llm_post / total, 3) if total else 0.0,
+        # 세부 (LLM 거친 것 중 정상 vs 빈 결과 vs 실패)
+        "llm_breakdown": {
+            "llm_success": ROUTE_COUNTER.get("llm", 0),
+            "empty_result": ROUTE_COUNTER.get("empty_result", 0),
+            "fallback_help": ROUTE_COUNTER.get("fallback_help", 0),
+        },
+    }
 
 
 # ── #6: 우선순위·Top 질의는 LLM 우회, scores/detections로 직접 응답 ──
@@ -796,7 +1096,9 @@ RULE_NAMES_KO = {
     "E1-3": "공시 의무 항목 미제출",
     "E2-2": "3년 동일값 반복",
     "F1'-1": "교원수 교차 불일치",
-    "G1-1": "3년 단조 추세",
+    # G1-1: 본교 단일 시계열의 누적 단조 추세를 점검.
+    # 동료군 대비 비교(방향 역행 / 변동성 차이)는 G1-2 / G1-3 후속 룰로 검토.
+    "G1-1": "다년 단조 추세",
 }
 
 CATEGORY_NAMES_KO = {
@@ -1331,9 +1633,9 @@ SIXBOX_GUIDE = {
         "recommend": "학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.",
     },
     "G1-1": {
-        "pattern": "단년 변동은 작지만 3년 같은 방향으로 누적 8% 이상 변화. B1 단년 급변에는 안 잡힘.",
+        "pattern": "단년 변동은 작지만 다년에 걸쳐 같은 방향으로 누적 8% 이상 변화. B1 단년 급변에는 안 잡히는 누적 변화를 점검합니다. (본교 단일 시계열 기준 · 동료군 대비 비교는 G1-2/G1-3 후속 룰로 검토)",
         "normal": "지역 인구 변화, 학교 운영 변화, 정책 영향, 물가 상승.",
-        "recommend": "3년 누적 변동의 사유(인구·운영·정책·물가 등)를 함께 확인하고 추세를 지속 모니터링해 주세요.",
+        "recommend": "다년 누적 변동의 사유(인구·운영·정책·물가 등)를 함께 확인하고 추세를 지속 모니터링해 주세요.",
     },
 }
 
@@ -1662,14 +1964,10 @@ pandas_code 규칙:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {
-            "analysis_plan": f"JSON 파싱 실패. 원본: {text[:200]}",
-            "columns_used": [],
-            "criteria": "",
-            "pandas_code": "result = df[['school_name','year','student_count','teacher_count','class_count']].head(10)",
-            "comparison": "",
-            "confidence": "낮음"
-        }
+        # 정책: 기본 코드(데이터표 head) fallback 폐기.
+        # 파싱 실패는 "정상 결과"가 아니라 실패 → 호출부에서 안내 응답으로 처리.
+        print(f"[WARN] _get_analysis_plan JSON 파싱 실패. 원본 앞부분: {text[:200]}")
+        return None
 
 
 def _generate_report(client, plan: dict, result_data: list, query: str, school_name: str = "") -> str:
@@ -1725,17 +2023,8 @@ def _generate_suggestions(plan: dict, result_data: list) -> list:
 
 
 def _fallback_analysis(query: str, df: pd.DataFrame, columns: dict) -> ChatResponse:
-    cols = ["school_name", "year", "student_count", "teacher_count", "class_count"]
-    available = [c for c in cols if c in df.columns]
-    result = df[available].head(10) if available else df.head(5)
-    return ChatResponse(
-        plan={"analysis_plan": "기본 데이터 조회", "columns_used": available, "pandas_code": ""},
-        result_data=_rename_cols_ko(result.to_dict(orient="records")),
-        report="기본 데이터를 표시합니다.",
-        confidence="중간",
-        follow_up_suggestions=["급식비 추이 분석", "학폭 패턴 분석"],
-        sixbox=None,
-    )
+    """Gemini 비활성 시 호출되던 함수. 정책 변경: 기본 데이터표 반환 금지 → 안내 응답."""
+    return ChatResponse(**_build_fallback_help_response())
 
 
 if __name__ == "__main__":
