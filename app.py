@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from data_loader import load_and_merge_all, get_column_descriptions
-from rule_engine import RuleEngine
+from rule_engine import RuleEngine, RULE_META
 from priority_scorer import calculate_priority_scores, get_top_n, get_score_distribution
 from safe_executor import safe_execute, SecurityError
 
@@ -164,9 +164,13 @@ COL_KO = {
     "meal_cost_per_student": "1인당급식비",
     "teacher_total_position": "교원총계(직위별)", "instructor_count": "강사수",
     "teacher_count_no_instructor": "교원수(강사제외)",
+    "head_teacher_count": "보직교사수",
+    "grade1_students": "1학년 학생수", "grade2_students": "2학년 학생수", "grade3_students": "3학년 학생수",
+    "budget_revenue": "학교회계 세입", "budget_expense": "학교회계 세출",
     "kess_student_count": "KESS학생수", "kess_teacher_total": "KESS교원수",
     "student_count_yoy": "학생수변동률(%)", "class_count_yoy": "학급수변동률(%)",
     "teacher_count_yoy": "교원수변동률(%)", "meal_cost_total_yoy": "급식비변동률(%)",
+    "teacher_no_inst_yoy": "교원수(강사제외)변동률(%)",
 }
 
 def _rename_cols_ko(data_list: list) -> list:
@@ -213,31 +217,71 @@ async def dashboard():
                 cat_dist.append({"code": code, "ko": ko, "count": cnt})
         cat_dist.sort(key=lambda x: -x["count"])
 
-    # 룰별 분포 (좌측 필터 accordion용)
+    # 룰별 분포 (좌측 필터 accordion용) — RULE_META 전체 25개 노출, 상태 메타 동봉
+    # · active + 탐지 N건 → 'n건'
+    # · active + 탐지 0건 → '0건'
+    # · needs_mapping → '매핑 확인 필요'
+    rule_counts = detections["rule_id"].value_counts().to_dict() if not detections.empty else {}
     rule_dist = []
-    if not detections.empty:
-        rule_counts = detections["rule_id"].value_counts().to_dict()
-        for rid, cnt in sorted(rule_counts.items(), key=lambda x: (-x[1], x[0])):
-            cat = _get_category_code(rid)
-            rule_dist.append({
-                "rule_id": rid,
-                "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
-                "category_code": cat,
-                "category_ko": CATEGORY_NAMES_KO.get(cat, cat),
-                "count": int(cnt),
-            })
+    for rid, meta in RULE_META.items():
+        cnt = int(rule_counts.get(rid, 0))
+        cat = _get_category_code(rid)
+        rule_dist.append({
+            "rule_id": rid,
+            "rule_name_ko": RULE_NAMES_KO.get(rid, meta.get("name", rid)),
+            "category_code": cat,
+            "category_ko": CATEGORY_NAMES_KO.get(cat, cat),
+            "count": cnt,
+            "status": meta.get("status", "active"),
+            "mapping_note": meta.get("mapping_note", ""),
+        })
+    # 정렬: 카테고리 코드 → 같은 카테고리 내 (active 먼저, 탐지 많은순, 룰ID 사전순)
+    _STATUS_ORDER = {"active": 0, "needs_mapping": 1, "no_source_confirmed": 2}
+    rule_dist.sort(key=lambda x: (
+        x["category_code"],
+        _STATUS_ORDER.get(x["status"], 99),
+        -x["count"],
+        x["rule_id"],
+    ))
 
     return {
         "top3": top3_enriched,
         "distribution": dist,
         "category_distribution": cat_dist,
         "rule_distribution": rule_dist,
+        "rule_status_summary": _rule_status_summary(rule_counts),
         "districts_all": _seoul_25_districts(df),
         "total_detections": len(detections),
         "total_schools": len(scores),
         "zero_schools": int(len(scores[scores["score"] < 6])) if not scores.empty else 0,
         "data_basis": _data_basis(df),
     }
+
+
+def _rule_status_summary(rule_counts: dict) -> dict:
+    """룰별 상태 요약 — active/needs_mapping/no_source_confirmed 카운트와 표."""
+    by_status = {"active": 0, "needs_mapping": 0, "no_source_confirmed": 0}
+    rows = []
+    for rid, meta in RULE_META.items():
+        st = meta.get("status", "active")
+        by_status[st] = by_status.get(st, 0) + 1
+        rows.append({
+            "rule_id": rid,
+            "name": RULE_NAMES_KO.get(rid, meta.get("name", rid)),
+            "category": meta.get("category", ""),
+            "status": st,
+            "detections": int(rule_counts.get(rid, 0)),
+            "mapping_note": meta.get("mapping_note", ""),
+        })
+    return {"by_status": by_status, "rows": rows}
+
+
+@app.get("/api/rule-status")
+async def rule_status():
+    """룰별 구현/매핑/실행/탐지 건수 표 (UI 표용 단일 엔드포인트)."""
+    detections = app_state.get("detections", pd.DataFrame())
+    rule_counts = detections["rule_id"].value_counts().to_dict() if not detections.empty else {}
+    return _rule_status_summary(rule_counts)
 
 
 @app.get("/api/schools")
@@ -705,27 +749,41 @@ async def stats():
 # ── 한국어 명칭 매핑 ──
 
 RULE_NAMES_KO = {
-    "C1-1": "학생↔학급 역방향 변동", "C1-2": "학생↔학급 완만 역방향",
-    "C1-3": "학생↔교원 불균형", "C1-8": "학급당학생수 급변",
+    "C1-1": "학생↔학급 역방향 변동", "C1-2": "학생↔학급 완만 역방향 변동",
+    "C1-3": "학생↔교원 불균형", "C1-4": "학급↔교원 불균형",
+    "C1-5": "학생↔보직교사 불균형", "C1-7": "교원1인당학생수 급변",
+    "C1-8": "학급당학생수 급변",
     "C3-3A": "미조치 피해 (강력)", "C3-3B": "미조치 피해 (참고)",
-    "B1-1": "학생·교원 급변동", "B1-5": "진학률 급변동", "B1-6": "학폭 심의 급증",
+    "B1-1": "학생·학급·교원 급변동(이중)", "B1-2": "학생·학급·교원 급변동(단년)",
+    "B1-3": "학교회계 변동", "B1-4": "학교회계 강한 변동",
+    "B1-5": "진학률 급변동", "B1-6": "학폭 심의 급증",
     "C2-3": "급식비 변동", "C2-3+": "급식비 강한 변동",
-    "D2-2": "유사학교 대비 극단값", "C5-1": "학생수 변동 정상범위(-7~+3%) 밖",
-    "E2-2": "수치 3년 정체", "F1'-1": "교원수 교차 불일치",
+    "D2-1": "유사학교 대비 상하위 10%", "D2-2": "유사학교 대비 극단값",
+    "C5-1": "진급 시 학생 이탈",
+    "E1-1": "3년 연속 미입력", "E1-2": "단독 미입력 (동료군 다 입력)",
+    "E1-3": "공시 의무 항목 미제출",
+    "E2-2": "3년 동일값 반복",
+    "F1'-1": "교원수 교차 불일치",
 }
 
 CATEGORY_NAMES_KO = {
     "C1": "학생·자원 연동 점검", "C3": "미조치 피해 점검",
     "B1": "전년 대비 급변동", "C2": "학생·재정 연동 점검",
     "D2": "유사학교 대비 편차", "C5": "학년 진급 인원 점검",
-    "E2": "수치 미갱신 점검", "F1": "연계 시점 차이 점검",
+    "E1": "누락 패턴 점검", "E2": "수치 미갱신 점검",
+    "F1": "연계 시점 차이 점검",
 }
 
-# 데이터 테이블에 표시할 지표 목록
+# 데이터 테이블에 표시할 지표 목록 (단일 라벨, 중복 행 없음).
+# RULE_COLUMNS·차트 등에서 다른 라벨로 들어와도 LABEL_ALIAS로 정규화하여 같은 행으로 매칭.
 TABLE_METRICS = [
     ("학생수", "student_count"),
+    ("1학년 학생수", "grade1_students"),
+    ("2학년 학생수", "grade2_students"),
     ("학급수", "class_count"),
     ("교원수", "teacher_count"),
+    ("교원수(강사제외)", "teacher_count_no_instructor"),
+    ("보직교사수", "head_teacher_count"),
     ("학급당학생수", "students_per_class"),
     ("교원1인당학생수", "students_per_teacher"),
     ("학폭 심의건수", "bullying_cases"),
@@ -735,7 +793,25 @@ TABLE_METRICS = [
     ("진학률(%)", "graduation_rate"),
     ("급식비총액(천원)", "meal_cost_total"),
     ("1인당급식비(원)", "meal_cost_per_student"),
+    ("학교회계 세입", "budget_revenue"),
+    ("학교회계 세출", "budget_expense"),
 ]
+
+# 라벨 동의어 — 다양한 곳에서 들어오는 라벨을 정식 라벨로 정규화
+LABEL_ALIAS = {
+    "진학률": "진학률(%)",
+    "급식비총액": "급식비총액(천원)",
+    "급식비 총액": "급식비총액(천원)",
+    "1인당급식비": "1인당급식비(원)",
+    "1인당 급식비": "1인당급식비(원)",
+    "학폭건수": "학폭 심의건수",
+    # 시설 (rule_engine._fc_name이 내려주는 라벨과 chart_cols 라벨 통일)
+    "기숙사": "기숙사실수",
+}
+
+def _canon_label(label: str) -> str:
+    """라벨 정규화 — 별칭이 있으면 정식 라벨, 없으면 원본."""
+    return LABEL_ALIAS.get(label, label)
 
 
 def _build_data_table(school_df, detections_df, full_df) -> list:
@@ -746,28 +822,17 @@ def _build_data_table(school_df, detections_df, full_df) -> list:
     years = sorted(school_df["year"].unique())
     district = school_df["district"].iloc[0] if "district" in school_df.columns else ""
 
-    # 탐지된 (연도, 컬럼) 쌍 수집
+    # 탐지된 (연도, 컬럼) 쌍 수집 — E2-2 등 동적 컬럼 룰은 detection.col_key를 우선 사용
     detected_cells = set()
     for _, d in detections_df.iterrows():
         yr = int(d.get("year", 0))
         rid = d.get("rule_id", "")
-        # 룰 → 관련 컬럼 매핑
-        rule_cols = {
-            "C1-1": ["student_count", "class_count"],
-            "C1-8": ["students_per_class"],
-            "C1-3": ["student_count", "teacher_count"],
-            "C3-3A": ["bullying_victims", "bullying_protection"],
-            "C3-3B": ["bullying_victims", "bullying_protection"],
-            "B1-1": ["student_count", "teacher_count"],
-            "B1-5": ["graduation_rate"],
-            "B1-6": ["bullying_cases"],
-            "C2-3": ["meal_cost_total"], "C2-3+": ["meal_cost_total"],
-            "D2-2": ["students_per_class", "students_per_teacher"],
-            "C5-1": ["student_count"],
-            "E2-2": ["student_count", "teacher_count", "class_count"],
-        }
-        for col in rule_cols.get(rid, []):
-            detected_cells.add((yr, col))
+        dyn_col = str(d.get("col_key", "") or "").strip()
+        if dyn_col:
+            detected_cells.add((yr, dyn_col))
+        else:
+            for _, col_key in RULE_COLUMNS.get(rid, []):
+                detected_cells.add((yr, col_key))
 
     rows = []
     for label, col in TABLE_METRICS:
@@ -807,38 +872,108 @@ def _build_data_table(school_df, detections_df, full_df) -> list:
 
 
 def _build_chart_data(school_df, full_df, district) -> dict:
-    """Chart.js용 데이터"""
+    """Chart.js용 데이터 — 본교 시계열 + 동료군 평균 + 동료군 범위(min/max).
+    룰 단위 Evidence Chart에서 룰 코드별로 표시 컬럼을 선택해서 사용."""
     if school_df.empty:
         return {}
 
     years = sorted(school_df["year"].unique())
     labels = [int(y) for y in years]
 
-    def get_vals(col):
-        return [round(float(school_df[school_df["year"] == y][col].iloc[0]), 1)
-                if not school_df[school_df["year"] == y].empty and pd.notna(school_df[school_df["year"] == y][col].iloc[0])
-                else None for y in years]
+    def _peer_subset(y):
+        return full_df[(full_df["district"] == district) & (full_df["year"] == y)] if district else full_df[full_df["year"] == y]
 
-    def get_peer(col):
-        if district:
-            return [round(float(full_df[(full_df["district"] == district) & (full_df["year"] == y)][col].mean()), 1)
-                    if len(full_df[(full_df["district"] == district) & (full_df["year"] == y)][col].dropna()) > 0
-                    else None for y in years]
-        return [None] * len(years)
+    def get_vals(col):
+        out = []
+        for y in years:
+            sub = school_df[school_df["year"] == y]
+            if sub.empty or pd.isna(sub[col].iloc[0]):
+                out.append(None)
+            else:
+                out.append(round(float(sub[col].iloc[0]), 1))
+        return out
+
+    def get_peer_mean(col):
+        out = []
+        for y in years:
+            sub = _peer_subset(y)[col].dropna()
+            out.append(round(float(sub.mean()), 1) if len(sub) > 0 else None)
+        return out
+
+    def get_peer_minmax(col):
+        mins, maxs = [], []
+        for y in years:
+            sub = _peer_subset(y)[col].dropna()
+            if len(sub) > 0:
+                mins.append(round(float(sub.min()), 1))
+                maxs.append(round(float(sub.max()), 1))
+            else:
+                mins.append(None); maxs.append(None)
+        return mins, maxs
+
+    # 차트용 컬럼 후보 (룰 단위 Evidence Chart에서 선택해서 표시) — 단일 라벨, 별칭 따로 처리
+    # 시설 7개(fc_*)도 포함: E1-1/E1-2 Status Timeline용. NaN(미입력)인 경우도 시계열에 그대로 표시.
+    chart_cols = [
+        ("student_count", "학생수"),
+        ("grade1_students", "1학년 학생수"),
+        ("grade2_students", "2학년 학생수"),
+        ("class_count", "학급수"),
+        ("teacher_count", "교원수"),
+        ("teacher_count_no_instructor", "교원수(강사제외)"),
+        ("head_teacher_count", "보직교사수"),
+        ("students_per_class", "학급당학생수"),
+        ("students_per_teacher", "교원1인당학생수"),
+        ("bullying_cases", "학폭 심의건수"),
+        ("bullying_victims", "피해학생수"),
+        ("bullying_protection", "보호조치건수"),
+        ("bullying_perpetrators", "가해학생수"),
+        ("graduation_rate", "진학률(%)"),
+        ("meal_cost_total", "급식비총액(천원)"),
+        ("meal_cost_per_student", "1인당급식비(원)"),
+        ("budget_revenue", "학교회계 세입"),
+        ("budget_expense", "학교회계 세출"),
+        # 시설 (E1-1 / E1-2 Status Timeline)
+        ("fc_changing_room", "학생탈의실"),
+        ("fc_shower", "학생샤워실"),
+        ("fc_health_room", "보건실"),
+        ("fc_cafeteria", "학생식당"),
+        ("fc_dorm", "기숙사실수"),
+        ("fc_av_room", "시청각실"),
+        ("fc_computer_room", "컴퓨터실"),
+    ]
+
+    series = {}  # 라벨 또는 col_key → {self, peer_mean, peer_min, peer_max}
+    for col_key, label in chart_cols:
+        if col_key not in school_df.columns:
+            continue
+        self_vals = get_vals(col_key)
+        peer_mean = get_peer_mean(col_key)
+        peer_min, peer_max = get_peer_minmax(col_key)
+        payload = {
+            "self": self_vals,
+            "peer_mean": peer_mean,
+            "peer_min": peer_min,
+            "peer_max": peer_max,
+        }
+        # 정식 라벨로도, col_key로도 접근 가능 (프론트에서 col_keys 우선 매칭 시 안정)
+        series[label] = payload
+        series[col_key] = payload
 
     return {
         "labels": labels,
-        "학생수": get_vals("student_count"),
-        "학급수": get_vals("class_count"),
-        "교원수": get_vals("teacher_count"),
-        "학급당학생수": get_vals("students_per_class"),
-        "학폭건수": get_vals("bullying_cases"),
-        "피해학생수": get_vals("bullying_victims"),
-        "보호조치건수": get_vals("bullying_protection"),
-        "진학률": get_vals("graduation_rate"),
-        "동료군_학생수": get_peer("student_count"),
-        "동료군_교원수": get_peer("teacher_count"),
-        "동료군_학급당학생수": get_peer("students_per_class"),
+        "series": series,
+        # ↓ 하위 호환 (기존 키 그대로 유지)
+        "학생수": series.get("학생수", {}).get("self") or [None] * len(years),
+        "학급수": series.get("학급수", {}).get("self") or [None] * len(years),
+        "교원수": series.get("교원수", {}).get("self") or [None] * len(years),
+        "학급당학생수": series.get("학급당학생수", {}).get("self") or [None] * len(years),
+        "학폭건수": series.get("학폭건수", {}).get("self") or [None] * len(years),
+        "피해학생수": series.get("피해학생수", {}).get("self") or [None] * len(years),
+        "보호조치건수": series.get("보호조치건수", {}).get("self") or [None] * len(years),
+        "진학률": series.get("진학률", {}).get("self") or [None] * len(years),
+        "동료군_학생수": series.get("학생수", {}).get("peer_mean") or [None] * len(years),
+        "동료군_교원수": series.get("교원수", {}).get("peer_mean") or [None] * len(years),
+        "동료군_학급당학생수": series.get("학급당학생수", {}).get("peer_mean") or [None] * len(years),
     }
 
 
@@ -937,21 +1072,33 @@ def _data_basis(df: pd.DataFrame) -> dict:
     }
 
 
-# 룰 → 관련 컬럼 매핑
+# 룰 → 관련 컬럼 매핑 (Evidence Chart·룰 카드 표시용)
 RULE_COLUMNS = {
-    "C1-1": [("학생수","student_count"), ("학급수","class_count")],
-    "C1-8": [("학급당학생수","students_per_class")],
-    "C1-3": [("학생수","student_count"), ("교원수","teacher_count")],
+    "C1-1":  [("학생수","student_count"), ("학급수","class_count")],
+    "C1-2":  [("학생수","student_count"), ("학급수","class_count")],
+    "C1-3":  [("학생수","student_count"), ("교원수","teacher_count")],
+    "C1-4":  [("학급수","class_count"), ("교원수","teacher_count")],
+    "C1-5":  [("학생수","student_count"), ("보직교사수","head_teacher_count")],
+    "C1-7":  [("교원1인당학생수","students_per_teacher")],
+    "C1-8":  [("학급당학생수","students_per_class")],
     "C3-3A": [("피해학생수","bullying_victims"), ("보호조치건수","bullying_protection"), ("가해학생수","bullying_perpetrators")],
     "C3-3B": [("피해학생수","bullying_victims"), ("보호조치건수","bullying_protection"), ("가해학생수","bullying_perpetrators")],
-    "B1-1": [("학생수","student_count"), ("교원수","teacher_count")],
-    "B1-5": [("진학률(%)","graduation_rate")],
-    "B1-6": [("학폭 심의건수","bullying_cases")],
-    "C2-3": [("급식비총액","meal_cost_total"), ("학생수","student_count")],
-    "C2-3+": [("급식비총액","meal_cost_total"), ("학생수","student_count")],
-    "D2-2": [("학급당학생수","students_per_class"), ("교원1인당학생수","students_per_teacher")],
-    "C5-1": [("학생수","student_count")],
-    "E2-2": [("학급수","class_count"), ("교원수","teacher_count")],
+    "B1-1":  [("학생수","student_count"), ("학급수","class_count"), ("교원수","teacher_count")],
+    "B1-2":  [("학생수","student_count"), ("학급수","class_count"), ("교원수","teacher_count")],
+    "B1-3":  [("학교회계 세입","budget_revenue"), ("학교회계 세출","budget_expense")],
+    "B1-4":  [("학교회계 세입","budget_revenue"), ("학교회계 세출","budget_expense")],
+    "B1-5":  [("진학률(%)","graduation_rate")],
+    "B1-6":  [("학폭 심의건수","bullying_cases")],
+    "C2-3":  [("급식비총액(천원)","meal_cost_total"), ("학생수","student_count")],
+    "C2-3+": [("급식비총액(천원)","meal_cost_total"), ("학생수","student_count")],
+    "D2-1":  [("학급당학생수","students_per_class"), ("교원1인당학생수","students_per_teacher"), ("1인당급식비(원)","meal_cost_per_student")],
+    "D2-2":  [("학급당학생수","students_per_class"), ("교원1인당학생수","students_per_teacher"), ("1인당급식비(원)","meal_cost_per_student")],
+    "C5-1":  [("1학년 학생수","grade1_students"), ("2학년 학생수","grade2_students")],
+    "E1-1":  [],   # 시설 미입력 — 차트로 표현하지 않음
+    "E1-2":  [],
+    "E1-3":  [],
+    "E2-2":  [("학급수","class_count"), ("교원수","teacher_count"), ("학생수","student_count")],
+    "F1'-1": [("교원수(강사제외)","teacher_count_no_instructor")],
 }
 
 
@@ -970,24 +1117,48 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
         star = int(d.get("star", 0))
         cat_groups[cat_ko]["max_star"] = max(cat_groups[cat_ko]["max_star"], star)
         cat_groups[cat_ko]["years_set"].add(int(d.get("year", 0)))
+        # detection 단위 동적 col_label/col_key (E2-2, D2, B1, E1 등). 없으면 RULE_COLUMNS 기본.
+        dyn_label = str(d.get("col_label", "") or "").strip()
+        dyn_key = str(d.get("col_key", "") or "").strip()
+        if dyn_key:
+            # 매칭은 col_key, 표시는 한국어 라벨 — 짝 보존
+            col_pairs = [{"key": dyn_key, "label": _canon_label(dyn_label or dyn_key)}]
+        else:
+            col_pairs = [{"key": k, "label": _canon_label(label)}
+                         for label, k in RULE_COLUMNS.get(rid, [])]
+        col_keys = [p["key"] for p in col_pairs]
+        col_labels = [p["label"] for p in col_pairs]
         cat_groups[cat_ko]["rules"].append({
             "rule_id": rid,
             "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
             "year": int(d.get("year", 0)),
             "star": star,
             "detail": d.get("detail", ""),
-            # 관련 컬럼 라벨을 함께 내려서 프론트의 룰명 기반 매핑 의존 제거
-            "col_labels": [label for label, _ in RULE_COLUMNS.get(rid, [])],
+            "col_labels": col_labels,    # 표시용 (한국어)
+            "col_keys": col_keys,        # 매칭용 (영문 컬럼 ID)
+            "col_pairs": col_pairs,      # 짝 보존 — 프론트 차트가 우선 사용
         })
 
     # 카테고리별로 관련 컬럼 데이터 테이블 생성
+    # — detection 단위 col_label/col_key가 있는 룰은 그 컬럼 우선, 없으면 RULE_COLUMNS 기본
+    detections_by_cat = {}
+    for _, d in detections_df.iterrows():
+        c_code = _get_category_code(d.get("rule_id", ""))
+        c_ko = CATEGORY_NAMES_KO.get(c_code, c_code)
+        detections_by_cat.setdefault(c_ko, []).append(d)
+
     result = []
     for cat_ko, group in sorted(cat_groups.items(), key=lambda x: -x[1]["max_star"]):
         # 관련 컬럼 수집
         related_cols = set()
-        for rule in group["rules"]:
-            for label, col in RULE_COLUMNS.get(rule["rule_id"], []):
-                related_cols.add((label, col))
+        for d in detections_by_cat.get(cat_ko, []):
+            dyn_key = str(d.get("col_key", "") or "").strip()
+            dyn_label = str(d.get("col_label", "") or "").strip()
+            if dyn_key and dyn_label:
+                related_cols.add((_canon_label(dyn_label), dyn_key))
+            else:
+                for label, col in RULE_COLUMNS.get(d.get("rule_id", ""), []):
+                    related_cols.add((_canon_label(label), col))
 
         # 미니 데이터 테이블 (해당 카테고리 컬럼만)
         mini_table = []

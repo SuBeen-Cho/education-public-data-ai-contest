@@ -24,7 +24,6 @@
       <a class="nav-tab active" data-view="national" href="#">전국 현황</a>
       <a class="nav-tab" data-view="dashboard" href="#">서울 고등학교</a>
       <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
-      <a class="nav-tab" data-view="explorer" href="#">고급 탐색</a>
       <a class="nav-tab" data-view="advanced" href="#">고도화 미리보기</a>
     </nav>
     <div class="nav-right">
@@ -93,7 +92,7 @@
         <!-- 동적 렌더: 검토 우선도 구간 / 룰 accordion / 25개 구 / 학교 유형 -->
       </aside>
 
-      <!-- 중앙 목록 -->
+      <!-- 중앙 목록 (주인공) -->
       <section class="list-area">
         <div class="active-chips-wrap" id="active-chips">
           <span class="ach-label">선택 필터</span>
@@ -114,27 +113,24 @@
           </div>
         </div>
         <div class="list-panel">
-          <div class="list-head">
-            <h3>학교 목록</h3>
-            <span class="count" id="list-count-side">—</span>
-          </div>
           <div class="list-wrap">
             <table class="list" id="school-list-table"></table>
           </div>
         </div>
       </section>
 
-      <!-- 우측 보조 통계 -->
+      <!-- 우측 사이드바 — 현황 요약 -->
       <aside class="stats-panel">
+        <div class="stats-head">현황 요약</div>
         <div class="panel">
           <h3>검토 우선도 지수 분포</h3>
           <div class="dist-bars" id="dist-bars"></div>
-          <div class="sample-note" id="sample-note">—</div>
         </div>
         <div class="panel" style="margin-top:14px">
           <h3>카테고리별 검토 신호</h3>
           <div class="cat-dist" id="cat-dist"></div>
         </div>
+        <div class="sample-note" id="sample-note" style="margin-top:14px">—</div>
       </aside>
 
     </div>
@@ -162,55 +158,25 @@
     <!-- 상단 요약 카드 (5박스) -->
     <div class="sd-summary-grid" id="sd-summary-grid"></div>
 
-    <!-- 차트 -->
-    <div class="section-title">추이 차트</div>
-    <div class="charts-row">
-      <div class="chart-card"><canvas id="chart-main"></canvas></div>
-      <div class="chart-card"><canvas id="chart-bullying"></canvas></div>
-    </div>
-    <div class="chart-caption" id="chart-caption">—</div>
-
-    <!-- 룰 단위 Evidence Card -->
-    <div class="section-title">검토 신호 상세 — 룰 단위</div>
-    <div id="evidence-cards"></div>
-
-    <!-- 전체 데이터 테이블 (접기) -->
-    <details class="full-table-details">
-      <summary>전체 시계열 데이터 테이블 보기</summary>
-      <div class="data-table-wrap" id="full-data-table"></div>
-    </details>
-
-    <!-- 고급 탐색 안내 -->
-    <div class="exp-link-box">
-      <div class="elb-text">
-        <b>같은 데이터셋에서 조건을 바꿔 다른 학교들과 비교</b>하고 싶다면,<br>
-        상단 <b>고급 탐색</b> 탭에서 지역·연도·지표·조건을 자유롭게 설정해 검색할 수 있습니다.
-      </div>
-      <a href="#" data-view="explorer" id="link-explorer">고급 탐색에서 더 분석하기 →</a>
-    </div>
-  </section>
-
-  <!-- ===== EXPLORER VIEW (고급 탐색) ===== -->
-  <section id="view-explorer" class="view">
-    <div class="page-title">
-      <h1>고급 탐색</h1>
-      <span class="updated">전체 데이터셋에서 조건을 걸어 학교를 탐색합니다 · 룰 기반 탐지 외 자유 조건</span>
-    </div>
-    <div class="index-info-note">
-      이 화면은 <b>전체 DB 기준 조건 탐색</b>입니다. 특정 학교가 아닌, 분석 범위 안에서 어떤 학교들이 조건에 해당하는지 찾을 때 사용합니다.
-      <div class="iin-sub">결과는 룰 기반 검토 신호가 아니라 사용자가 입력한 조건의 결과이며, "검토 후보"로 단정하지 않습니다.</div>
-    </div>
-
-    <div class="explorer-grid">
-      <aside class="explorer-config" id="explorer-config">
-        <!-- 동적: 지역 / 컬럼 / 질문 -->
-      </aside>
-      <section class="explorer-results-area" id="explorer-results-area">
-        <div class="exp-results-empty">
-          왼쪽 패널에서 조건을 설정하고 <b>분석</b>을 눌러주세요. 결과 카드가 이곳에 누적됩니다.
+    <!-- 마스터-디테일: 좌 룰 리스트 / 우 선택 룰 상세 + Evidence Chart -->
+    <div class="section-title">검토 신호 상세</div>
+    <div class="md-grid">
+      <aside class="md-master" id="md-master">
+        <div class="md-master-h">트리거된 룰 <span class="md-master-cnt" id="md-master-cnt">—</span></div>
+        <div id="md-rule-list">
+          <div class="loading" style="padding:14px;font-size:11px">로딩 중…</div>
         </div>
+      </aside>
+      <section class="md-detail" id="md-detail">
+        <div class="loading" style="padding:32px;font-size:12px">룰을 선택하면 상세 근거가 표시됩니다.</div>
       </section>
     </div>
+
+    <!-- 원자료 테이블 (접기, 기본 닫힘 — 최하단 백업 자료) -->
+    <details class="full-table-details">
+      <summary>원자료 테이블 (검토 산출 원자료)</summary>
+      <div class="data-table-wrap" id="full-data-table"></div>
+    </details>
   </section>
 
   <!-- ===== ADVANCED PREVIEW (제안 2 + 제안 4) ===== -->
@@ -294,14 +260,14 @@
     <div id="adv-p4" class="adv-page">
       <div class="adv-card">
         <h2 class="adv-h2">이상 전파 추적</h2>
-        <p class="adv-lead">하나의 입력 값이 잘못되면, 파생 지표와 연쇄 룰이 동시에 탐지됩니다. 이 기능은 <b>원인 값 하나</b>를 꼬집어 "이것 때문에 나머지가 걸린 것입니다"라고 안내하고, 원인을 확인하면 전파된 탐지가 일괄 해소됩니다.</p>
+        <p class="adv-lead">하나의 입력 값에 확인이 필요한 상태가 생기면, 파생 지표와 연쇄 룰이 동시에 탐지될 수 있습니다. 이 기능은 <b>원인 값 하나</b>를 꼬집어 "이 값 때문에 나머지가 같이 잡힌 것입니다"라고 안내하고, 원인이 정상 확인되면 전파된 탐지가 일괄 해소됩니다.</p>
 
         <div class="adv-km"><b>왜 필요한가</b><p>담당자가 "왜 갑자기 3건이나 나오지?"라는 혼란을 겪을 때, 3건이 사실은 <strong>같은 원인에서 파생된 것</strong>임을 보여줍니다. 원인 1개만 확인하면 나머지가 자동 해소되어 검토 부담이 대폭 줄어듭니다.</p></div>
 
-        <div class="adv-info">산업 근거: 1,000+ 데이터 파이프라인 분석 결과 <b>72%의 DQ 이슈가 비즈니스에 영향을 미친 후 발견</b>(Datachecks 2024). 마이크로서비스 오류 전파 추적 특허(US 11,010,235)에서 "원인 → 전파 체인 → 영향 범위" 시각화 접근을 차용.</div>
+        <div class="adv-info">산업 근거: 1,000+ 데이터 파이프라인 분석 결과 <b>72%의 DQ 이슈가 비즈니스에 영향을 미친 후 발견</b>(Datachecks 2024). 마이크로서비스 신호 전파 추적 특허(US 11,010,235)에서 "원인 → 전파 체인 → 영향 범위" 시각화 접근을 차용.</div>
 
         <h3 class="adv-h3">교육 데이터의 의존성 그래프</h3>
-        <p class="adv-note">아래는 우리 룰셋에서 컬럼 간 의존 관계를 정리한 것입니다. 하나의 값이 잘못되면 화살표 방향으로 전파됩니다.</p>
+        <p class="adv-note">아래는 우리 룰셋에서 컬럼 간 의존 관계를 정리한 것입니다. 한 값에 확인이 필요한 상태가 생기면 화살표 방향으로 전파됩니다.</p>
         <div class="adv-dep-graph">
           <div class="adv-dep-row"><div class="adv-dep-src">학생수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">학급당학생수, 교원1인당학생수, 학생수변동률, C1-1, C1-3, C1-8, B1-1, C5-1</div></div>
           <div class="adv-dep-row"><div class="adv-dep-src">학급수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">학급당학생수, 학급수변동률, C1-1, C1-2, C1-8, D2-2</div></div>
@@ -310,16 +276,16 @@
           <div class="adv-dep-row"><div class="adv-dep-src">학폭심의건수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">B1-6, C3-3A/B (피해학생수 경유)</div></div>
           <div class="adv-dep-row"><div class="adv-dep-src">학급당학생수</div><div class="adv-dep-arr">→</div><div class="adv-dep-dst">C1-8, D2-2 (파생값이 2개 룰에 영향)</div></div>
         </div>
-        <p class="adv-foot-note">* 한 컬럼이 잘못되면 화살표 끝의 모든 지표/룰이 연쇄 영향을 받음</p>
+        <p class="adv-foot-note">* 한 컬럼에 확인이 필요한 상태가 생기면 화살표 끝의 모든 지표/룰이 연쇄 영향을 받음</p>
       </div>
 
       <div class="adv-card">
         <h2 class="adv-h2">체험해 보기 <span class="adv-h-sub">예시 시나리오</span></h2>
         <div class="adv-flex" style="margin-bottom:14px">
           <select id="adv-scenario-select" class="adv-select" onchange="advLoadScenario()">
-            <option value="1">시나리오 1: 학급수 파싱 오류 ("28(3)" → 3으로 잘못 추출)</option>
+            <option value="1">시나리오 1: 학급수 파싱 불일치 ("28(3)" → 3으로 추출)</option>
             <option value="2">시나리오 2: 급식비 입력단위 혼동 (천원 → 원)</option>
-            <option value="3">시나리오 3: 교원수 강사 포함 오류</option>
+            <option value="3">시나리오 3: 교원수 비교 기준 차이 (강사 포함/제외)</option>
           </select>
         </div>
         <div id="adv-scenario-area"></div>

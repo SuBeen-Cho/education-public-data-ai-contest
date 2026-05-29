@@ -29,6 +29,66 @@ SCHOOL_COLS = {
     # 강사 보정용 (F1' 교차검증, C1 교원 비교)
     "teacher_total_position": "교원_직위별교원현황__총계 (계)",    # [107] 직위별 총계 (강사 포함)
     "instructor_count": "교원_직위별교원현황__강사 (계)",          # [103] 강사수
+    # 학년별 학생수 (C5-1: 진급 시 학생 이탈)
+    "grade1_male": "학사_학생_성별학생수__1학년(남)",
+    "grade1_female": "학사_학생_성별학생수__1학년(여)",
+    "grade2_male": "학사_학생_성별학생수__2학년(남)",
+    "grade2_female": "학사_학생_성별학생수__2학년(여)",
+    "grade3_male": "학사_학생_성별학생수__3학년(남)",
+    "grade3_female": "학사_학생_성별학생수__3학년(여)",
+    # 보직교사 (C1-5: 학생↔보직교사 불균형)
+    "head_teacher_count": "교원_직위별교원현황__보직교사 (계)",
+}
+
+# 학교회계 세입/세출 결산 (B1-3 / B1-4)
+# 공립=국공립회계, 사립=사립교비회계 — 6개 카테고리 합산
+PUBLIC_REVENUE_COLS = [
+    "재정_국공립회계세입결산서__정부이전수입",
+    "재정_국공립회계세입결산서__기타이전수입",
+    "재정_국공립회계세입결산서__학부모부담수입",
+    "재정_국공립회계세입결산서__지원금수입",
+    "재정_국공립회계세입결산서__행정활동수입",
+    "재정_국공립회계세입결산서__기타",
+]
+PUBLIC_EXPENSE_COLS = [
+    "재정_국공립회계세출결산서__인적자원운용",
+    "재정_국공립회계세출결산서__학생복지 /교육격차해소",
+    "재정_국공립회계세출결산서__기본적 교육활동",
+    "재정_국공립회계세출결산서__선택적 교육활동",
+    "재정_국공립회계세출결산서__교육활동 지원",
+    "재정_국공립회계세출결산서__학교 일반운영",
+    "재정_국공립회계세출결산서__학교시설 확충",
+    "재정_국공립회계세출결산서__학교 재무활동",
+]
+PRIVATE_REVENUE_COLS = [
+    "재정_사립교비회계세입결산서__정부이전수입",
+    "재정_사립교비회계세입결산서__기타이전수입",
+    "재정_사립교비회계세입결산서__학부모부담수입",
+    "재정_사립교비회계세입결산서__지원금수입",
+    "재정_사립교비회계세입결산서__행정활동수입",
+    "재정_사립교비회계세입결산서__기타",
+]
+PRIVATE_EXPENSE_COLS = [
+    "재정_사립교비회계세출결산서__인적자원운용",
+    "재정_사립교비회계세출결산서__학생복지 /교육격차해소",
+    "재정_사립교비회계세출결산서__기본적 교육활동",
+    "재정_사립교비회계세출결산서__선택적 교육활동",
+    "재정_사립교비회계세출결산서__교육활동 지원",
+    "재정_사립교비회계세출결산서__학교 일반운영",
+    "재정_사립교비회계세출결산서__학교시설 확충",
+    "재정_사립교비회계세출결산서__학교 재무활동",
+]
+
+# 시설/공시 컬럼 (E1-1, E1-2, E1-3: 입력 패턴 점검)
+# 표시 컬럼은 단순화: 시설 항목 7개로 한정. 각 학교별 NaN 여부로 누락 패턴 추적.
+FACILITY_COLS = {
+    "fc_changing_room": "시설_교사현황__학생탈의실",
+    "fc_shower": "시설_교사현황__학생샤워실",
+    "fc_health_room": "시설_교사현황__보건실",
+    "fc_cafeteria": "시설_교사현황__학생식당",
+    "fc_dorm": "시설_교사현황__기숙사실수",
+    "fc_av_room": "시설_교사현황__학습지원공간 시청각실",
+    "fc_computer_room": "시설_교사현황__학습지원공간 컴퓨터실",
 }
 
 BULLY_COLS = {
@@ -129,6 +189,56 @@ def load_school_alimi(year: int) -> pd.DataFrame:
 
     # 강사 제외 교원수 (F1', C1 교원비교에 사용)
     result["teacher_count_no_instructor"] = result["teacher_total_position"] - result["instructor_count"]
+
+    # 학년별 학생수 (C5-1 진급 시 이탈 추적용) — 1+2+3학년 남/여 합산
+    for grade in (1, 2, 3):
+        m_key = f"grade{grade}_male"
+        f_key = f"grade{grade}_female"
+        m_col = SCHOOL_COLS.get(m_key)
+        f_col = SCHOOL_COLS.get(f_key)
+        if m_col in df_raw.columns and f_col in df_raw.columns:
+            m = df_raw[m_col].apply(safe_numeric).fillna(0)
+            f = df_raw[f_col].apply(safe_numeric).fillna(0)
+            result[f"grade{grade}_students"] = (m + f).astype(int)
+        else:
+            result[f"grade{grade}_students"] = np.nan
+
+    # 보직교사 (C1-5)
+    head_col = SCHOOL_COLS.get("head_teacher_count")
+    if head_col and head_col in df_raw.columns:
+        result["head_teacher_count"] = df_raw[head_col].apply(safe_numeric)
+    else:
+        result["head_teacher_count"] = np.nan
+
+    # 학교회계 세입/세출 결산 합계 (B1-3, B1-4) — 설립유형별 분기
+    school_type_series = result["school_type"]
+    def _sum_cols(row_idx, cols):
+        total = 0.0; any_value = False
+        for c in cols:
+            if c in df_raw.columns:
+                v = safe_numeric(df_raw[c].iloc[row_idx])
+                if pd.notna(v):
+                    total += float(v); any_value = True
+        return total if any_value else np.nan
+
+    rev_list, exp_list = [], []
+    for i in range(len(df_raw)):
+        st = school_type_series.iloc[i]
+        if st == "공립":
+            rev_list.append(_sum_cols(i, PUBLIC_REVENUE_COLS))
+            exp_list.append(_sum_cols(i, PUBLIC_EXPENSE_COLS))
+        else:  # 사립 (또는 미상 → 사립으로 fallback)
+            rev_list.append(_sum_cols(i, PRIVATE_REVENUE_COLS))
+            exp_list.append(_sum_cols(i, PRIVATE_EXPENSE_COLS))
+    result["budget_revenue"] = rev_list
+    result["budget_expense"] = exp_list
+
+    # 시설 컬럼 (E1-1/E1-2: 미입력 패턴 점검)
+    for our_name, src_col in FACILITY_COLS.items():
+        if src_col in df_raw.columns:
+            result[our_name] = df_raw[src_col].apply(safe_numeric)
+        else:
+            result[our_name] = np.nan
 
     # 학폭 시트
     try:
@@ -253,9 +363,19 @@ def calculate_derived(df: pd.DataFrame) -> pd.DataFrame:
 
     # 전년 대비 변동률 (학교별)
     df = df.sort_values(["school_code", "year"]).reset_index(drop=True)
-    for col in ["student_count", "class_count", "teacher_count", "meal_cost_total"]:
+    yoy_cols = [
+        "student_count", "class_count", "teacher_count", "meal_cost_total",
+        "teacher_count_no_instructor",  # C1-3 강사 제외 교원 YoY
+        "head_teacher_count",            # C1-5 보직교사 YoY
+        "budget_revenue", "budget_expense",  # B1-3, B1-4
+        "students_per_teacher",          # C1-7
+    ]
+    for col in yoy_cols:
         if col in df.columns:
             df[f"{col}_yoy"] = df.groupby("school_code")[col].pct_change() * 100
+    # 별칭 (가이드라인 명세 일치)
+    if "teacher_count_no_instructor_yoy" in df.columns:
+        df["teacher_no_inst_yoy"] = df["teacher_count_no_instructor_yoy"]
 
     # 동료군(구별) 통계 — 전 지표
     peer_cols = [

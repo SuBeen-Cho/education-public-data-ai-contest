@@ -93,7 +93,6 @@ const REGIONS = [
 function bindNav() {
   document.querySelector('[data-view="national"]').onclick = (e) => { e.preventDefault(); showView('national'); };
   document.querySelector('[data-view="dashboard"]').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
-  document.querySelector('[data-view="explorer"]').onclick = (e) => { e.preventDefault(); showView('explorer'); initExplorer(); };
   const ns = document.getElementById('nav-school');
   ns.onclick = (e) => { e.preventDefault(); if (currentSchoolCode) showView('school'); };
   document.querySelector('[data-view="advanced"]').onclick = (e) => { e.preventDefault(); showView('advanced'); initAdvanced(); };
@@ -102,8 +101,6 @@ function bindNav() {
   document.getElementById('nav-search').addEventListener('input', () => { applyFilterAndRender(); });
   const advBack = document.getElementById('adv-back');
   if (advBack) advBack.onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
-  const linkExp = document.getElementById('link-explorer');
-  if (linkExp) linkExp.onclick = (e) => { e.preventDefault(); showView('explorer'); initExplorer(); };
 }
 
 function showView(view) {
@@ -197,6 +194,30 @@ function _renderDashboardUI(dash, schools) {
   renderCatDist(dash.category_distribution || []);
   bindSort();
   applyFilterAndRender();
+  renderRuleStatusNote(dash);
+}
+
+// §9: needs_mapping 룰 안내 — "현재 수집 범위 확인 필요"
+function renderRuleStatusNote(dash) {
+  const summary = (dash && dash.rule_status_summary) || null;
+  if (!summary) return;
+  const needs = (summary.rows || []).filter(r => r.status === 'needs_mapping');
+  let note = document.getElementById('rule-status-note');
+  const wrap = document.querySelector('.list-area');
+  if (!needs.length) {
+    if (note) note.remove();
+    return;
+  }
+  if (!note) {
+    note = document.createElement('div');
+    note.id = 'rule-status-note';
+    note.className = 'rule-status-note';
+    wrap && wrap.appendChild(note);
+  }
+  note.innerHTML = `
+    <span class="rsn-tag">매핑 확인 필요</span>
+    <div><b>현재 수집 범위 확인 필요</b>: ${needs.map(r => `${r.name} (${r.rule_id})`).join(' · ')}.
+    원천 컬럼 단일 확정이 어려워 룰 함수는 구현했으나 실 탐지는 보류했습니다.</div>`;
 }
 
 // ===== TOP 3 =====
@@ -253,12 +274,12 @@ function renderFilterPanel(dash) {
   });
   const types = Array.from(typeSet.entries()).sort((a, b) => b[1] - a[1]);
 
-  // 룰 accordion 구조 — 카테고리별 묶음
+  // 룰 accordion 구조 — 카테고리별 묶음. RULE_META 25개 전부 노출, 상태 표시.
   const ruleByCat = {};
   ruleDist.forEach(r => {
     if (!ruleByCat[r.category_code]) ruleByCat[r.category_code] = { ko: r.category_ko, rules: [], total: 0 };
     ruleByCat[r.category_code].rules.push(r);
-    ruleByCat[r.category_code].total += r.count;
+    if (r.status === 'active') ruleByCat[r.category_code].total += r.count;
   });
   // 카테고리 순서: dash.category_distribution 순서 따름
   const catOrder = catDist.map(c => c.code);
@@ -283,32 +304,34 @@ function renderFilterPanel(dash) {
       </div>
     </div>
 
-    <!-- 룰/카테고리 accordion -->
+    <!-- 룰/카테고리 accordion (RULE_META 전체 25개 + 상태 표시) -->
     <div class="filter-section">
-      <div class="filter-section-h">룰 / 카테고리 <span class="fsh-cnt">${ruleDist.reduce((a, r) => a + r.count, 0)}건</span></div>
+      <div class="filter-section-h">룰 / 카테고리 <span class="fsh-cnt">${ruleDist.filter(r => r.status === 'active').reduce((a, r) => a + r.count, 0)}건</span></div>
       <div id="rule-acc-wrap">
-        ${catOrder.filter(c => ruleByCat[c]).map(c => {
-          const grp = ruleByCat[c];
-          return `
-            <div class="rule-acc" data-cat="${c}">
-              <div class="rule-acc-head" onclick="toggleRuleAcc('${c}')">
-                <span class="rule-acc-title"><span class="rac-arr">▸</span> ${grp.ko}</span>
-                <span class="rule-acc-cnt">${grp.total}건</span>
-              </div>
-              <div class="rule-acc-body">
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px 4px">
-                  <button class="rac-toggle-all" onclick="event.stopPropagation();toggleCatRules('${c}', true)">전체 선택</button>
-                  <button class="rac-toggle-all" onclick="event.stopPropagation();toggleCatRules('${c}', false)">전체 해제</button>
+        ${(() => {
+          // 카테고리 순서: catOrder(탐지 있는 것 우선) + 그 외 (E1, F1 등)도 포함
+          const seen = new Set();
+          const order = [];
+          catOrder.forEach(c => { if (ruleByCat[c]) { order.push(c); seen.add(c); } });
+          Object.keys(ruleByCat).forEach(c => { if (!seen.has(c)) order.push(c); });
+          return order.map(c => {
+            const grp = ruleByCat[c];
+            return `
+              <div class="rule-acc" data-cat="${c}">
+                <div class="rule-acc-head" onclick="toggleRuleAcc('${c}')">
+                  <span class="rule-acc-title"><span class="rac-arr">▸</span> ${grp.ko}</span>
+                  <span class="rule-acc-cnt">${grp.total}건</span>
                 </div>
-                ${grp.rules.map(r => `
-                  <div class="rule-item" data-rule="${r.rule_id}" onclick="toggleRuleFilter('${r.rule_id}')">
-                    <span class="rule-item-id">${r.rule_id}</span>
-                    <span class="rule-item-name" title="${r.rule_name_ko}">${r.rule_name_ko}</span>
-                    <span class="rule-item-cnt">${r.count}</span>
-                  </div>`).join('')}
-              </div>
-            </div>`;
-        }).join('')}
+                <div class="rule-acc-body">
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px 4px">
+                    <button class="rac-toggle-all" onclick="event.stopPropagation();toggleCatRules('${c}', true)">전체 선택</button>
+                    <button class="rac-toggle-all" onclick="event.stopPropagation();toggleCatRules('${c}', false)">전체 해제</button>
+                  </div>
+                  ${grp.rules.map(r => _ruleAccItem(r)).join('')}
+                </div>
+              </div>`;
+          }).join('');
+        })()}
       </div>
     </div>
 
@@ -345,6 +368,27 @@ function renderFilterPanel(dash) {
   document.getElementById('filter-reset').onclick = resetAllFilters;
 }
 
+// 룰 accordion 항목 한 개 — 상태별 표시
+function _ruleAccItem(r) {
+  const st = r.status || 'active';
+  if (st === 'active') {
+    const cntCls = r.count > 0 ? 'rule-item-cnt' : 'rule-item-cnt zero';
+    const click = `onclick="toggleRuleFilter('${r.rule_id}')"`;
+    return `<div class="rule-item ${r.count === 0 ? 'no-hits' : ''}" data-rule="${r.rule_id}" ${click}>
+      <span class="rule-item-id">${r.rule_id}</span>
+      <span class="rule-item-name" title="${r.rule_name_ko}">${r.rule_name_ko}</span>
+      <span class="${cntCls}">${r.count}건</span>
+    </div>`;
+  }
+  // needs_mapping — 클릭 비활성, 안내 텍스트
+  const tip = r.mapping_note ? r.mapping_note.replace(/"/g, '&quot;') : '현재 수집 범위 확인 필요';
+  return `<div class="rule-item needs-mapping" data-rule="${r.rule_id}" title="${tip}">
+    <span class="rule-item-id">${r.rule_id}</span>
+    <span class="rule-item-name" title="${r.rule_name_ko}">${r.rule_name_ko}</span>
+    <span class="rule-item-cnt mapping">매핑 확인 필요</span>
+  </div>`;
+}
+
 // ===== 필터 토글 =====
 function toggleFilterChip(el) {
   const f = el.dataset.filter, v = el.dataset.val;
@@ -372,6 +416,7 @@ function toggleCatRules(cat, on) {
   const acc = document.querySelector(`.rule-acc[data-cat="${cat}"]`);
   if (!acc) return;
   acc.querySelectorAll('.rule-item').forEach(it => {
+    if (it.classList.contains('needs-mapping')) return;   // 매핑 확인 필요 룰은 필터 선택 제외
     const rid = it.dataset.rule;
     if (on) activeFilters.rule.add(rid); else activeFilters.rule.delete(rid);
     it.classList.toggle('active', on);
@@ -506,11 +551,9 @@ function renderCatDist(catDist) {
 function renderSchoolList(schools, total) {
   const tbl = document.getElementById('school-list-table');
   const countText = (total != null && total !== schools.length)
-    ? `<b>${schools.length}</b>교 표시 / 전체 ${total}교`
-    : `<b>${schools.length}</b>교`;
+    ? `<b>${schools.length}</b>교 표시 / 전체 ${total}교 · 정렬: ${sortLabel(currentSort)}`
+    : `<b>${schools.length}</b>교 · 정렬: ${sortLabel(currentSort)}`;
   document.getElementById('list-count').innerHTML = countText;
-  const side = document.getElementById('list-count-side');
-  if (side) side.textContent = `정렬: ${sortLabel(currentSort)}`;
 
   if (!schools.length) {
     tbl.innerHTML = `<tbody><tr><td style="padding:36px;text-align:center;color:var(--text-muted)">조건에 맞는 학교가 없습니다. 좌측 필터를 조정해 보세요.</td></tr></tbody>`;
@@ -518,7 +561,7 @@ function renderSchoolList(schools, total) {
   }
 
   tbl.innerHTML = `
-    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th style="text-align:right">검토 우선도 지수</th></tr></thead>
+    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th style="text-align:right" title="검토 우선도 지수">지수</th></tr></thead>
     <tbody>${schools.map(s => rowHtml(s)).join('')}</tbody>`;
   tbl.querySelectorAll('tbody tr[data-code]').forEach(tr => {
     tr.onclick = () => goToSchool(tr.dataset.code);
@@ -564,7 +607,12 @@ async function loadSchool(code) {
   } catch (e) { console.error(e); }
 }
 
+// 현재 학교 상세 컨텍스트 (마스터-디테일 상태)
+let currentSchoolData = null;
+let currentSelectedRule = null;
+
 function renderSchool(d) {
+  currentSchoolData = d;
   const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 42;
   const gl = indexLabel(d.score), gc = indexCls(d.score);
   document.getElementById('school-header').innerHTML = `
@@ -578,18 +626,20 @@ function renderSchool(d) {
       <span class="score-label">${d.rank}위 / ${total}교</span>
     </div>`;
 
-  // AI 보조 요약 — 라벨 명시
+  // AI 보조 요약 — 학교 상단 한 곳에서만. 실패/없음이면 조용히 숨김.
   const aiWrap = document.getElementById('ai-summary-wrap');
   const aiSum = document.getElementById('ai-summary');
-  if (d.llm_explanation && !d.llm_explanation.startsWith('(')) {
-    let txt = d.llm_explanation.replace(/([②③])/g, '\n$1');
+  const aiTxt = d.llm_explanation || '';
+  const aiOk = aiTxt && !aiTxt.startsWith('(') && aiTxt !== FALLBACK_AI_TEXT;
+  if (aiOk) {
+    let txt = aiTxt.replace(/([②③])/g, '\n$1');
     aiSum.innerHTML = txt.split('\n').map(l => l.trim()).filter(Boolean).map(l => `<div style="margin-bottom:3px">${l}</div>`).join('');
     aiWrap.style.display = '';
   } else {
     aiWrap.style.display = 'none';
   }
 
-  // 상단 요약 카드 — 5박스 (지수 / 신호 수 / 세부 룰 수 / 반복 / 주요 카테고리)
+  // 상단 요약 5박스
   const cats = d.summary.categories_ko || [];
   const repeatTxt = d.is_repeat ? '3년 반복 신호' : (d.summary.detections > 1 ? '복수 연도 신호' : '최근 연도 중심');
   document.getElementById('sd-summary-grid').innerHTML = `
@@ -619,20 +669,505 @@ function renderSchool(d) {
       <div class="sdc-detail">${cats.length > 2 ? '외 ' + (cats.length - 2) + '개' : ''}</div>
     </div>`;
 
-  // 차트 캡션 — 왜 잡혔는지 한 줄
-  let cap = '본 화면의 추이는 본교 실선 · 동료군(같은 구) 점선으로 표시됩니다.';
-  if (cats.length) cap += ` 주요 확인 영역: ${cats.join(' · ')}.`;
-  document.getElementById('chart-caption').textContent = cap;
+  // 마스터-디테일 — 좌 룰 리스트 / 우 선택 룰 상세 + Evidence Chart
+  renderMasterDetail(d);
 
-  renderEvidenceCards(d.detection_cards);
-  renderCharts(d.chart_data);
+  // 원자료 테이블 (최하단, 기본 닫힘)
   renderDataTable(d.data_table, 'full-data-table');
+
   updateChatContext();
 }
 
-// ===== EVIDENCE CARDS (룰 단위) =====
+// ===== MASTER-DETAIL (좌 룰 리스트 / 우 선택 룰 상세) =====
+function _collectRulesFromCards(cards) {
+  // 카테고리 카드 → 룰 단위 평탄화. col_pairs(key+label 짝)를 detection 단위로 누적(key 기준 중복 제거).
+  const map = {};
+  (cards || []).forEach(cat => {
+    (cat.rules || []).forEach(r => {
+      if (!map[r.rule_id]) {
+        map[r.rule_id] = {
+          rule_id: r.rule_id,
+          rule_name_ko: r.rule_name_ko,
+          category_ko: cat.category_ko,
+          cat_code: cat.cat_code,
+          col_pairs: [],     // [{key, label}, ...] — 매칭은 key, 표시는 label
+          col_labels: [],    // 표시 라벨 (한글)
+          col_keys: [],      // 매칭 키 (영문)
+          years: [],
+          details: [],
+          severity: 0,
+          data_table: cat.data_table || [],
+        };
+      }
+      const m = map[r.rule_id];
+      // col_pairs를 우선 가져옴 (백엔드가 짝지어 내려줌). 없으면 col_keys/col_labels 인덱스로 짝 추정.
+      const pairs = Array.isArray(r.col_pairs) && r.col_pairs.length
+        ? r.col_pairs
+        : ((r.col_keys || []).map((k, i) => ({ key: k, label: (r.col_labels || [])[i] || k })));
+      pairs.forEach(p => {
+        if (!p || !p.key) return;
+        if (!m.col_pairs.find(x => x.key === p.key)) {
+          m.col_pairs.push({ key: p.key, label: p.label || p.key });
+          m.col_keys.push(p.key);
+          m.col_labels.push(p.label || p.key);
+        }
+      });
+      m.years.push(r.year);
+      m.details.push({ year: r.year, detail: r.detail });
+      m.severity = Math.max(m.severity, r.star || 0);
+    });
+  });
+  return Object.values(map).sort((a, b) => {
+    if (b.severity !== a.severity) return b.severity - a.severity;
+    return a.rule_id.localeCompare(b.rule_id);
+  });
+}
+
+function _ruleGradeCls(severity) {
+  return severity >= 3 ? 'grade-priority' : severity >= 2 ? 'grade-normal' : 'grade-ref';
+}
+function _ruleGradeLabel(severity) {
+  return severity >= 3 ? '우선 검토' : severity >= 2 ? '일반 검토' : '참고';
+}
+
+function renderMasterDetail(d) {
+  const rules = _collectRulesFromCards(d.detection_cards);
+  const listEl = document.getElementById('md-rule-list');
+  const cntEl = document.getElementById('md-master-cnt');
+  cntEl.textContent = `${rules.length}개`;
+
+  if (!rules.length) {
+    listEl.innerHTML = '<div style="padding:18px;font-size:11px;color:var(--text-muted);text-align:center">표시할 검토 신호가 없습니다.</div>';
+    document.getElementById('md-detail').innerHTML = '<div class="md-empty">표시할 검토 신호가 없습니다.</div>';
+    currentSelectedRule = null;
+    return;
+  }
+
+  listEl.innerHTML = rules.map(r => {
+    const isRepeat = new Set(r.years).size >= 3;
+    const yrs = Array.from(new Set(r.years)).sort();
+    const yrTxt = yrs.length === 1 ? `${yrs[0]}년` : `${yrs[0]}~${yrs[yrs.length - 1]}년`;
+    // 핵심 수치 1개 — 가장 최근 연도의 detail 첫 50자
+    const latest = r.details.slice().sort((a, b) => b.year - a.year)[0];
+    const headline = latest ? latest.detail : '';
+    const gcls = _ruleGradeCls(r.severity);
+    const glabel = _ruleGradeLabel(r.severity);
+    return `
+      <div class="md-rule" data-rule="${r.rule_id}" onclick="selectRule('${r.rule_id}')">
+        <div class="md-rule-name">${r.rule_name_ko}<span class="md-rule-rid">${r.rule_id}</span></div>
+        <div class="md-rule-meta">
+          <span class="md-rule-year">${yrTxt}</span>
+          ${isRepeat ? '<span class="md-rule-repeat">반복</span>' : ''}
+          <span class="md-rule-grade ${gcls}">${glabel}</span>
+        </div>
+        <div class="md-rule-headline">${headline}</div>
+      </div>`;
+  }).join('');
+
+  // 기본 선택: 가장 강한 신호 (severity 우선, 동률 시 첫 번째)
+  selectRule(rules[0].rule_id);
+}
+
+function selectRule(ruleId) {
+  if (!currentSchoolData) return;
+  const rules = _collectRulesFromCards(currentSchoolData.detection_cards);
+  const rule = rules.find(r => r.rule_id === ruleId);
+  if (!rule) return;
+  currentSelectedRule = rule;
+
+  // 좌측 활성 표시
+  document.querySelectorAll('.md-rule').forEach(el => el.classList.toggle('active', el.dataset.rule === ruleId));
+
+  // 우측 상세 렌더
+  const yrs = Array.from(new Set(rule.years)).sort();
+  const yrTxt = yrs.length === 1 ? `${yrs[0]}년` : `${yrs[0]}~${yrs[yrs.length - 1]}년`;
+  const isRepeat = new Set(rule.years).size >= 3;
+  const gcls = _ruleGradeCls(rule.severity);
+  const glabel = _ruleGradeLabel(rule.severity);
+
+  // 수치 테이블 (룰 관련 컬럼만)
+  const dt = rule.data_table || [];
+  const colLabels = new Set(rule.col_labels || []);
+  const rows = dt.filter(row => colLabels.size === 0 || colLabels.has(row['지표']));
+  let numTable = '';
+  if (rows.length) {
+    const yearsAll = Object.keys(rows[0]).filter(k => /^\d{4}$/.test(k)).sort();
+    const detYears = new Set(rule.years.map(Number));
+    numTable = `<table class="md-detail-num-table"><thead><tr><th>지표</th>${yearsAll.map(y => `<th${detYears.has(+y) ? ' style="background:var(--cobalt-bg);color:var(--cobalt)"' : ''}>${y}</th>`).join('')}<th>동료군 평균</th></tr></thead><tbody>`;
+    rows.forEach(row => {
+      numTable += '<tr><td>' + row['지표'] + '</td>';
+      yearsAll.forEach(y => {
+        const v = row[y];
+        const fmt = v == null ? '-' : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1)) : v);
+        numTable += `<td${detYears.has(+y) ? ' class="md-detected"' : ''}>${fmt}</td>`;
+      });
+      const p = row['동료군'];
+      numTable += `<td class="md-peer">${p != null ? (Number.isInteger(p) ? p.toLocaleString() : p.toFixed(1)) : '-'}</td></tr>`;
+    });
+    numTable += '</tbody></table>';
+  }
+
+  // 연도별 detail 리스트
+  const detailLines = rule.details.sort((a, b) => a.year - b.year).map(x =>
+    `<div><strong>${x.year}년</strong> · ${x.detail}</div>`).join('');
+
+  // 차트 캡션 — 룰 단위
+  const caption = _ruleChartCaption(rule);
+
+  // 확인 권장 — 룰 단위 가이드 (AI 사용 안 함, 정적 매핑)
+  const recText = _ruleRecommendation(rule);
+
+  document.getElementById('md-detail').innerHTML = `
+    <div class="md-detail-head">
+      <div class="md-h-name">${rule.rule_name_ko}<span class="md-h-rid">${rule.rule_id}</span></div>
+      <div class="md-h-meta">
+        <span class="md-h-year">${yrTxt}</span>
+        ${isRepeat ? '<span class="md-rule-repeat">반복</span>' : ''}
+        <span class="md-h-grade grade-badge ${gcls}">${glabel}</span>
+      </div>
+    </div>
+
+    <div class="md-detail-section-h">핵심 검토 신호</div>
+    <div class="md-detail-detail-list">${detailLines}</div>
+
+    <div class="md-detail-section-h">Evidence Chart — ${rule.col_labels.join(' · ') || '관련 지표'}</div>
+    <div class="md-chart-wrap"><canvas id="md-evidence-chart"></canvas></div>
+    <div class="md-chart-caption">${caption}</div>
+
+    ${numTable ? `<div class="md-detail-section-h">수치 + 동료군 비교</div>${numTable}` : ''}
+
+    <div class="md-detail-section-h">확인 권장</div>
+    <div class="md-detail-rec">${recText}</div>
+  `;
+
+  // Evidence Chart 그리기
+  renderEvidenceChart(rule);
+}
+
+function _ruleChartCaption(rule) {
+  // 룰별 한 줄 설명 — "왜 이 지표가 확인 대상으로 잡혔는지"
+  const map = {
+    'C1-1': '학생수와 학급수가 반대 방향으로 움직이면 자원 배분이 의도된 결과인지 확인이 필요합니다.',
+    'C1-3': '학생수는 안정인데 교원수가 급변하면 정원·강사 분류 기준을 확인해 주세요.',
+    'C1-8': '학급당 학생수의 급변은 학급수 또는 학생수 파싱·집계 정확성을 점검할 신호입니다.',
+    'C3-3A': '피해학생수 대비 보호조치가 적으면 미조치 가능성을 확인해 주세요.',
+    'C3-3B': '피해·보호조치 비대칭 신호. 가해학생 조치 미실시 사유도 함께 확인합니다.',
+    'B1-1': '학생·교원의 전년 대비 ±10% 이상 변동은 정원 변동·이동 사유 확인이 필요합니다.',
+    'B1-5': '진학률 급변은 졸업생 분모·진학 분류 기준 변경 가능성도 함께 확인합니다.',
+    'B1-6': '학폭 심의 건수의 급증은 학년도와 공시연도 기준 차이를 함께 확인해 주세요.',
+    'C2-3': '급식비 변동은 입력단위(천원) 준수 여부와 사업 외 항목 포함 여부를 확인합니다.',
+    'C2-3+': '급식비 강한 변동. 단위 혼동·1회성 사업 반영 가능성을 우선 확인해 주세요.',
+    'D2-2': '같은 구 일반고 분포의 극단값입니다. 학교 특성(소규모/예술 등) 정상 예외 가능성도 확인합니다.',
+    'C5-1': '학생수 변동이 자연 감소 범위(-7~+3%)를 벗어났습니다. 신·편입학 또는 전출 사유를 확인합니다.',
+    'E2-2': '3년간 동일 수치는 데이터 미갱신 가능성을 확인할 신호입니다.',
+    "F1'-1": '학교알리미와 KESS 교원수 차이는 강사 포함/미포함 기준 차이일 수 있습니다.',
+  };
+  return map[rule.rule_id] || '본교 시계열과 동료군(같은 구) 비교를 통해 확인이 필요한 지표입니다.';
+}
+
+function _ruleRecommendation(rule) {
+  const map = {
+    'C1-1': '<b>확인 권장</b>: 학생수·학급수 입력 원본을 함께 확인하고, 학급 신설/통폐합 여부와 학생 전출입을 점검해 주세요.',
+    'C1-3': '<b>확인 권장</b>: 교원 총계 산정 기준(강사 포함 여부)을 확인하고, 정원·기간제·강사 분류를 점검해 주세요.',
+    'C1-8': '<b>확인 권장</b>: 학급수 원본 표기("28(3)" 등 괄호 포함 시 총학급수 파싱 정확성)를 우선 확인해 주세요.',
+    'C3-3A': '<b>확인 권장</b>: 피해학생 보호조치 미실시 사유 또는 미입력 사유를 확인해 주세요. 가해학생 조치 별도 미입력 시 가해학생수 포함 여부도 점검합니다.',
+    'C3-3B': '<b>확인 권장</b>: 보호조치·가해조치 입력 누락 여부를 확인하고, 학년도(공시연도 -1) 기준이 맞는지 함께 점검해 주세요.',
+    'B1-1': '<b>확인 권장</b>: 직전 2년 평균 대비 변동 폭의 사유(통폐합·정원 조정·이동 등)를 확인해 주세요.',
+    'B1-5': '<b>확인 권장</b>: 진학률 산정 분모(졸업생 수)와 진학 분류 기준(전문대 포함 여부 등)을 확인해 주세요.',
+    'B1-6': '<b>확인 권장</b>: 학폭 심의 건수의 학년도 기준(공시연도 -1)을 확인하고, 실태조사 결과와 함께 점검해 주세요.',
+    'C2-3': '<b>확인 권장</b>: 급식비 입력단위(천원)와 사업 항목 분류를 확인해 주세요.',
+    'C2-3+': '<b>확인 권장</b>: 급식비 단위 혼동(천원↔원) 또는 1회성 사업 반영 여부를 우선 확인해 주세요.',
+    'D2-2': '<b>확인 권장</b>: 학교 유형(소규모·예술고 등)에 따른 정상 예외 가능성을 확인하고, 동료군 정의가 적정한지 함께 점검해 주세요.',
+    'C5-1': '<b>확인 권장</b>: 신·편입학, 전출·전입, 자퇴·휴학 등 학생수 변동 사유를 확인해 주세요.',
+    'E2-2': '<b>확인 권장</b>: 3년간 동일 수치가 실제 변동 없음인지, 입력 갱신 누락인지 확인해 주세요.',
+    "F1'-1": '<b>확인 권장</b>: 학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.',
+  };
+  return map[rule.rule_id] || '<b>확인 권장</b>: 본교 값과 동료군 값을 비교하여 정상 예외 가능성과 입력 정확성을 확인해 주세요.';
+}
+
+// ===== EVIDENCE CHART (룰 타입별 분기) =====
+//  · D2-2 → Peer Range Dot (동료군 분포 + 본교 위치)
+//  · C5-1 → Delta Arrow (1학년 → 2학년 진급 인원)
+//  · E2-2 → Status Timeline (연도별 동일값 점선 연결)
+//  · 그 외 → 라인 차트 (fallback, 일반 추세 확인용)
+let mdChart = null;
+function renderEvidenceChart(rule) {
+  const cd = currentSchoolData && currentSchoolData.chart_data;
+  if (!cd) return;
+  const wrap = document.getElementById('md-chart-wrap-container');
+  // wrap이 없는 경우(기존 마크업이 canvas만 갖고 있음): canvas 부모를 동적으로 교체
+  const cvs = document.getElementById('md-evidence-chart');
+  if (!cvs) return;
+  const host = cvs.parentElement;        // .md-chart-wrap
+  if (mdChart) { mdChart.destroy(); mdChart = null; }
+
+  // 룰 ID로 차트 타입 결정
+  const rid = rule.rule_id;
+  if (rid === 'D2-2' || rid === 'D2-1') {
+    return _renderPeerRangeDot(host, rule);
+  }
+  if (rid === 'C5-1') {
+    return _renderDeltaArrow(host, rule);
+  }
+  if (rid === 'E2-2' || rid === 'E1-1' || rid === 'E1-2') {
+    return _renderStatusTimeline(host, rule);
+  }
+  // fallback: 기존 라인 차트
+  return _renderLineChart(host, rule);
+}
+
+// ── 공통 헬퍼: 매칭은 col_key, 표시는 한국어 col_label ──
+// 백엔드가 col_pairs로 짝을 보존하므로 result.label은 항상 한국어.
+function _seriesForRule(rule) {
+  const cd = currentSchoolData && currentSchoolData.chart_data;
+  if (!cd || !cd.series) return [];
+  const result = [];
+  const usedKeys = new Set();
+  const usedLabels = new Set();
+  const pushIfFound = (key, label) => {
+    if (!key && !label) return;
+    const dispLabel = label || key;
+    if (usedKeys.has(key) || usedLabels.has(dispLabel)) return;
+    // 우선 col_key로 매칭, 없으면 label로
+    const payload = (key && cd.series[key]) || (label && cd.series[label]) || null;
+    if (!payload) return;
+    usedKeys.add(key); usedLabels.add(dispLabel);
+    result.push({ key: key || dispLabel, label: dispLabel, payload });
+  };
+  (rule.col_pairs || []).forEach(p => pushIfFound(p.key, p.label));
+  // col_pairs가 비었을 때 col_keys/col_labels로 보강
+  if (!result.length) {
+    const keys = rule.col_keys || [];
+    const labels = rule.col_labels || [];
+    const n = Math.max(keys.length, labels.length);
+    for (let i = 0; i < n; i++) pushIfFound(keys[i], labels[i]);
+  }
+  // 그래도 비면 학생수 fallback
+  if (!result.length && cd.series['학생수']) {
+    result.push({ key: 'student_count', label: '학생수', payload: cd.series['학생수'] });
+  }
+  return result;
+}
+
+// ── (Fallback) 라인 차트 ──
+function _renderLineChart(host, rule) {
+  // host 내부에 canvas 보장
+  host.innerHTML = '<canvas id="md-evidence-chart"></canvas>';
+  const cvs = document.getElementById('md-evidence-chart');
+  const cd = currentSchoolData.chart_data;
+  const labels = cd.labels;
+  const detYears = new Set(rule.years.map(Number));
+
+  const series = _seriesForRule(rule).slice(0, 2);
+  if (!series.length) { host.innerHTML = '<div class="ev-no-chart">표시할 시계열 데이터가 없습니다.</div>'; return; }
+
+  const palette = ['#1D4ED8', '#7C3AED'];
+  const peerPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)'];
+  const datasets = [];
+  series.forEach(({ label, payload: s }, i) => {
+    const color = palette[i % palette.length];
+    const bandColor = peerPalette[i % peerPalette.length];
+    if (s.peer_max && s.peer_min && s.peer_max.some(v => v != null)) {
+      datasets.push({ label: `${label} 동료군 범위 최대`, data: s.peer_max, borderColor: 'transparent', backgroundColor: bandColor, pointRadius: 0, fill: false, order: 30 + i });
+      datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: bandColor, pointRadius: 0, fill: '-1', order: 31 + i });
+    }
+    datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: color, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 20 + i });
+    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: color, borderWidth: 3.5, pointRadius: 5, pointHoverRadius: 7, tension: 0.25, fill: false, order: 1 + i });
+  });
+
+  const detectedYearPlugin = {
+    id: 'detectedYearBg',
+    beforeDatasetsDraw(chart) {
+      const ctx = chart.ctx, xScale = chart.scales.x, yScale = chart.scales.y;
+      ctx.save();
+      labels.forEach((yr, idx) => {
+        if (detYears.has(+yr)) {
+          const x = xScale.getPixelForValue(yr);
+          const halfW = (xScale.width / labels.length) * 0.5;
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+          ctx.fillRect(x - halfW, yScale.top, halfW * 2, yScale.height);
+        }
+      });
+      ctx.restore();
+    },
+  };
+
+  mdChart = new Chart(cvs, {
+    type: 'line', data: { labels, datasets }, plugins: [detectedYearPlugin],
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 10, family: 'Pretendard Variable' }, usePointStyle: true, padding: 8, filter: (item) => !item.text.includes('범위 최대') } },
+        tooltip: { callbacks: { title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}` } },
+      },
+      scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } }, x: { grid: { display: false }, ticks: { font: { size: 11, weight: '600' } } } },
+    },
+  });
+}
+
+// ── E2-2 / E1-1 / E1-2 — Status Timeline ──
+// 연도별 점 + 같은 값(또는 미입력)이 반복되면 점선 연결, 마지막에 상태 라벨
+function _renderStatusTimeline(host, rule) {
+  const cd = currentSchoolData.chart_data;
+  const labels = cd.labels;                       // 연도 배열
+  const series = _seriesForRule(rule)[0];          // 첫 컬럼 (E2-2/E1은 detection별 단일 컬럼)
+  const vals = series ? series.payload.self : labels.map(() => null);
+  const colLabel = series ? series.label : (rule.col_labels[0] || '');
+  const detYears = new Set(rule.years.map(Number));
+
+  // 분기: E1은 NaN(미입력) 패턴, E2-2는 동일값 패턴
+  const isMissingRule = (rule.rule_id === 'E1-1' || rule.rule_id === 'E1-2');
+  const isSameRule = (rule.rule_id === 'E2-2');
+
+  const dots = labels.map((yr, i) => {
+    const v = vals[i];
+    const missing = v == null;
+    const isLatest = i === labels.length - 1;
+    let cls = 'st-dot';
+    if (missing) cls += ' missing';
+    else if (isSameRule) cls += ' same';
+    if (detYears.has(+yr)) cls += ' detected';
+    const valTxt = missing ? '미입력' : (Number.isInteger(v) ? Number(v).toLocaleString() : Number(v).toFixed(1));
+    return `<div class="st-col ${isLatest ? 'st-latest' : ''}">
+      <div class="${cls}" title="${yr}년: ${valTxt}"></div>
+      <div class="st-val">${valTxt}</div>
+      <div class="st-yr">${yr}</div>
+    </div>`;
+  }).join('');
+
+  let summary = '';
+  if (isSameRule) {
+    const last3 = vals.slice(-3).filter(v => v != null);
+    if (last3.length >= 3 && last3.every(v => v === last3[0])) {
+      const t = last3[0];
+      summary = `<div class="st-sum">최근 3년 동일값 <b>${Number.isInteger(t) ? Number(t).toLocaleString() : Number(t).toFixed(1)}</b> · 입력 갱신 여부 확인 필요</div>`;
+    } else {
+      summary = `<div class="st-sum">최근 ${labels.length}년 시계열에서 같은 값이 반복된 구간 표시</div>`;
+    }
+  } else if (isMissingRule) {
+    const missCnt = vals.filter(v => v == null).length;
+    summary = `<div class="st-sum">${labels.length}년 중 ${missCnt}년 미입력 · 동료군 입력 패턴과 함께 확인 권장</div>`;
+  }
+
+  host.innerHTML = `
+    <div class="ev-comp ev-timeline">
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Status Timeline</span></div>
+      <div class="st-row">${dots}</div>
+      ${summary}
+    </div>`;
+}
+
+// ── C5-1 — Delta Arrow ──
+// 학년 진급 추적: 전년 1학년 → 당해 2학년 인원 변화를 화살표로 표시 (-7~+3% 정상 밴드)
+function _renderDeltaArrow(host, rule) {
+  const cd = currentSchoolData.chart_data;
+  const labels = cd.labels;
+  const g1 = (cd.series && (cd.series['grade1_students'] || cd.series['1학년 학생수'])) || null;
+  const g2 = (cd.series && (cd.series['grade2_students'] || cd.series['2학년 학생수'])) || null;
+  if (!g1 || !g2) { _renderLineChart(host, rule); return; }
+
+  // (전년 1학년, 당해 2학년) 페어 계산
+  const pairs = [];
+  for (let i = 1; i < labels.length; i++) {
+    const yr = labels[i];
+    const prev = g1.self[i - 1];
+    const curr = g2.self[i];
+    if (prev == null || curr == null || prev === 0) continue;
+    const diff = curr - prev;
+    const rate = (curr - prev) / prev * 100;
+    const inBand = rate >= -7 && rate <= 3;
+    pairs.push({ yr, prev, curr, diff, rate, inBand, detected: rule.years.includes(yr) });
+  }
+
+  if (!pairs.length) { host.innerHTML = '<div class="ev-no-chart">학년 진급 데이터가 충분하지 않습니다.</div>'; return; }
+
+  const items = pairs.map(p => {
+    const rateCls = p.inBand ? 'in-band' : (p.detected ? 'out-band detected' : 'out-band');
+    const arrowDir = p.diff < 0 ? 'down' : p.diff > 0 ? 'up' : 'flat';
+    return `<div class="da-item ${p.detected ? 'detected' : ''}">
+      <div class="da-yr">${p.yr - 1}년→${p.yr}년</div>
+      <div class="da-flow">
+        <div class="da-side">
+          <div class="da-side-lb">전년 1학년</div>
+          <div class="da-side-vl">${Number(p.prev).toLocaleString()}<span class="da-unit">명</span></div>
+        </div>
+        <div class="da-arrow ${arrowDir}">
+          <div class="da-arrow-shaft"></div>
+          <div class="da-arrow-tip"></div>
+          <div class="da-delta ${rateCls}">${p.diff >= 0 ? '+' : ''}${p.diff}명 (${p.rate >= 0 ? '+' : ''}${p.rate.toFixed(1)}%)</div>
+        </div>
+        <div class="da-side">
+          <div class="da-side-lb">당해 2학년</div>
+          <div class="da-side-vl">${Number(p.curr).toLocaleString()}<span class="da-unit">명</span></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="ev-comp ev-delta">
+      <div class="ev-comp-h">학년 진급 인원 변화 <span class="ev-comp-h-sub">Delta Arrow</span></div>
+      <div class="da-band">정상 범위: <b>-7% ~ +3%</b></div>
+      <div class="da-list">${items}</div>
+    </div>`;
+}
+
+// ── D2-2 / D2-1 — Peer Range Dot ──
+// 동료군 분포(min/max/mean/median)에서 본교 점이 어디에 위치하는지 가로 막대로
+function _renderPeerRangeDot(host, rule) {
+  const cd = currentSchoolData.chart_data;
+  const labels = cd.labels;
+  const series = _seriesForRule(rule)[0];
+  if (!series) { _renderLineChart(host, rule); return; }
+  const s = series.payload;
+  const colLabel = series.label;
+
+  // 연도별 막대 — 본교 점 + 동료군 범위 + 평균 마크
+  const rows = labels.map((yr, i) => {
+    const self = s.self[i];
+    const mn = s.peer_min[i];
+    const mx = s.peer_max[i];
+    const avg = s.peer_mean[i];
+    if (self == null || mn == null || mx == null) {
+      return `<div class="pr-row pr-row-empty"><div class="pr-yr">${yr}</div><div class="pr-bar"><span class="pr-empty">데이터 없음</span></div></div>`;
+    }
+    const range = mx - mn;
+    const pct = range > 0 ? Math.max(0, Math.min(100, ((self - mn) / range) * 100)) : 50;
+    const avgPct = range > 0 && avg != null ? Math.max(0, Math.min(100, ((avg - mn) / range) * 100)) : 50;
+    const detected = rule.years.includes(yr);
+    const dotCls = `pr-dot ${detected ? 'detected' : ''} ${pct < 5 ? 'extreme-low' : pct > 95 ? 'extreme-high' : ''}`;
+    return `<div class="pr-row ${detected ? 'detected' : ''}">
+      <div class="pr-yr">${yr}</div>
+      <div class="pr-bar">
+        <div class="pr-track">
+          <div class="pr-avg" style="left:${avgPct}%" title="동료군 평균 ${avg != null ? avg : '—'}"></div>
+          <div class="${dotCls}" style="left:${pct}%" title="본교 ${self}"></div>
+        </div>
+        <div class="pr-vals">
+          <span class="pr-min">${Number.isInteger(mn) ? Number(mn).toLocaleString() : Number(mn).toFixed(1)}</span>
+          <span class="pr-self">본교 <b>${Number.isInteger(self) ? Number(self).toLocaleString() : Number(self).toFixed(1)}</b></span>
+          <span class="pr-max">${Number.isInteger(mx) ? Number(mx).toLocaleString() : Number(mx).toFixed(1)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="ev-comp ev-peer">
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Peer Range Dot</span></div>
+      <div class="pr-list">${rows}</div>
+      <div class="pr-legend">
+        <span class="pr-lg-item"><span class="pr-lg-dot avg"></span> 동료군 평균</span>
+        <span class="pr-lg-item"><span class="pr-lg-dot self"></span> 본교</span>
+        <span class="pr-lg-item"><span class="pr-lg-bar"></span> 동료군 범위 (min~max)</span>
+      </div>
+    </div>`;
+}
+
+// (구) renderEvidenceCards — 마스터-디테일 구조로 대체됨. 호환을 위해 빈 함수 유지.
 let evCardData = [];
-function renderEvidenceCards(cards) {
+function _legacyRenderEvidenceCards_unused(cards) {
   const root = document.getElementById('evidence-cards');
   if (!cards || !cards.length) { root.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:12px">표시할 검토 신호가 없습니다.</div>'; evCardData = []; return; }
   evCardData = cards;
@@ -754,7 +1289,7 @@ function renderDataTable(table, targetId) {
   el.innerHTML = html;
 }
 
-// ===== CHARTS =====
+// ===== CHARTS (레거시 — chart-main/chart-bullying 캔버스 미사용. 호환 위해 함수만 유지.) =====
 const valLabelPlugin = { id: 'valLabel', afterDatasetsDraw(chart) {
   const ctx = chart.ctx; ctx.save();
   chart.data.datasets.forEach((ds, di) => {
@@ -770,7 +1305,9 @@ const valLabelPlugin = { id: 'valLabel', afterDatasetsDraw(chart) {
 }};
 
 function renderCharts(cd) {
+  // 레거시: chart-main/chart-bullying 캔버스가 사라졌으므로 안전 가드.
   if (!cd || !cd.labels) return;
+  if (!document.getElementById('chart-main')) return;
   if (chartMain) chartMain.destroy(); if (chartBully) chartBully.destroy();
   const labels = cd.labels, ff = 'Pretendard Variable';
   const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11, family: ff }, usePointStyle: true, padding: 10 } } }, scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } }, x: { grid: { display: false }, ticks: { font: { size: 11 } } } } };
@@ -787,154 +1324,7 @@ function renderCharts(cd) {
   ]}, options: { ...opts, scales: { ...opts.scales, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 }}}}, plugins: { ...opts.plugins, title: { display: true, text: '학폭 · 보호조치', font: { size: 12, weight: 'bold', family: ff }}}}});
 }
 
-// ===== EXPLORER (고급 탐색 — 학교 상세의 커스텀 분석 이식) =====
-const ALL_COLUMNS = [
-  { key: 'student_count', label: '학생수' }, { key: 'class_count', label: '학급수' }, { key: 'teacher_count', label: '교원수' },
-  { key: 'students_per_class', label: '학급당학생수' }, { key: 'students_per_teacher', label: '교원1인당학생수' },
-  { key: 'bullying_cases', label: '학폭건수' }, { key: 'bullying_victims', label: '피해학생수' }, { key: 'bullying_protection', label: '보호조치' }, { key: 'bullying_perpetrators', label: '가해학생수' },
-  { key: 'graduation_rate', label: '진학률(%)' }, { key: 'meal_cost_total', label: '급식비총액' }, { key: 'meal_cost_per_student', label: '1인당급식비' },
-];
-const EXP_DISTRICTS = ['전체', '노원', '강남', '관악'];
-const expState = { cols: new Set(['student_count', 'teacher_count']), district: '전체', schoolCode: '' };
-let expInitDone = false;
-
-function initExplorer() {
-  if (expInitDone) return;
-  const root = document.getElementById('explorer-config');
-  root.innerHTML = `
-    <div class="exp-section">
-      <div class="exp-section-h">분석 범위 · 구</div>
-      <div class="fpc" id="exp-district">
-        ${EXP_DISTRICTS.map(d => `<span class="fp-chip ${expState.district === d ? 'active' : ''}" data-district="${d}">${d === '전체' ? '전체' : d + '구'}</span>`).join('')}
-      </div>
-    </div>
-    <div class="exp-section">
-      <div class="exp-section-h">대상 학교 (선택)</div>
-      <select id="exp-school" class="sort-select" style="width:100%">
-        <option value="">전체 학교 비교</option>
-      </select>
-    </div>
-    <div class="exp-section">
-      <div class="exp-section-h">대상 지표 (다중 선택)</div>
-      <div class="col-selector" id="exp-cols">
-        ${ALL_COLUMNS.map(c => `<span class="col-chip ${expState.cols.has(c.key) ? 'selected' : ''}" data-key="${c.key}">${c.label}</span>`).join('')}
-      </div>
-      <div style="font-size:10.5px;color:var(--text-muted);margin-top:6px" id="exp-hint">선택한 컬럼 간 패턴 분석</div>
-    </div>
-    <div class="exp-section">
-      <div class="exp-section-h">조건 / 질문</div>
-      <div class="exp-input-row">
-        <input type="text" id="exp-query" placeholder="예: 학생수가 -5% 미만으로 감소한 학교">
-        <button id="exp-run">분석</button>
-      </div>
-    </div>`;
-
-  // 학교 셀렉트 채우기
-  const sel = document.getElementById('exp-school');
-  allSchools.slice().sort((a, b) => (a.school_name || '').localeCompare(b.school_name || '', 'ko')).forEach(s => {
-    const o = document.createElement('option');
-    o.value = s.school_code; o.textContent = `${s.school_name} (${s.district || ''}구)`;
-    sel.appendChild(o);
-  });
-  sel.onchange = () => { expState.schoolCode = sel.value; };
-
-  // 칩 바인딩
-  root.querySelectorAll('#exp-district .fp-chip').forEach(el => {
-    el.onclick = () => {
-      root.querySelectorAll('#exp-district .fp-chip').forEach(e => e.classList.remove('active'));
-      el.classList.add('active');
-      expState.district = el.dataset.district;
-    };
-  });
-  root.querySelectorAll('#exp-cols .col-chip').forEach(el => {
-    el.onclick = () => {
-      const k = el.dataset.key;
-      if (expState.cols.has(k)) expState.cols.delete(k); else expState.cols.add(k);
-      el.classList.toggle('selected');
-      updateExpHint();
-    };
-  });
-  document.getElementById('exp-run').onclick = runExplorer;
-  document.getElementById('exp-query').onkeydown = e => { if (e.key === 'Enter') runExplorer(); };
-  updateExpHint();
-  expInitDone = true;
-}
-
-const EXP_HINTS = {
-  'student_count,class_count': '학생수↔학급수 연동 점검',
-  'student_count,teacher_count': '학생수↔교원수 불균형 탐지',
-  'student_count,meal_cost_total': '학생수↔급식비 연동 점검',
-  'bullying_victims,bullying_protection': '미조치 피해 점검',
-};
-function updateExpHint() {
-  let hint = '';
-  for (const [combo, desc] of Object.entries(EXP_HINTS)) {
-    if (combo.split(',').every(p => expState.cols.has(p))) hint = desc;
-  }
-  if (!hint && expState.cols.size >= 2) hint = '선택한 컬럼 간 패턴 분석';
-  if (!hint) hint = '컬럼을 2개 이상 선택해 보세요';
-  const h = document.getElementById('exp-hint'); if (h) h.textContent = hint;
-}
-
-async function runExplorer() {
-  const query = document.getElementById('exp-query').value.trim();
-  const cols = Array.from(expState.cols);
-  const labels = ALL_COLUMNS.filter(c => expState.cols.has(c.key)).map(c => c.label);
-  const area = document.getElementById('explorer-results-area');
-  area.insertAdjacentHTML('afterbegin', '<div id="exp-loading" style="padding:12px;color:var(--text-muted);font-size:12px">분석 중…</div>');
-  try {
-    const data = await (await fetch(API + '/api/custom-analysis', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ school_code: expState.schoolCode, columns: cols, district_filter: expState.district, question: query || '검토 신호 분석' })
-    })).json();
-    const ld = document.getElementById('exp-loading'); if (ld) ld.remove();
-
-    const hlSet = new Set((data.highlight_cells || []).map(h => `${h.row}_${h.col}`));
-    let tableHtml = '';
-    if (data.result_data && data.result_data.length) {
-      const ks = Object.keys(data.result_data[0]);
-      tableHtml = `<table class="cat-table"><thead><tr>${ks.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>`;
-      data.result_data.slice(0, 12).forEach((row, ri) => {
-        tableHtml += '<tr>' + ks.map(c => {
-          let v = row[c]; if (typeof v === 'number') v = Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1);
-          const isHl = hlSet.has(`${ri}_${c}`);
-          return `<td${isHl ? ' class="cat-detected"' : ''}>${v == null ? '-' : v}</td>`;
-        }).join('') + '</tr>';
-      });
-      tableHtml += '</tbody></table>';
-    }
-    const ai = data.ai || {}, conf = data.confidence || '중간';
-    const cc = conf === '높음' ? 'conf-high' : 'conf-mid';
-    const anomalyText = data.anomalies && data.anomalies.length
-      ? `<div style="margin:4px 0;font-size:11px;color:var(--cobalt);font-weight:600">변동 신호: ${data.anomalies.join(', ')}</div>` : '';
-
-    const cardHtml = `
-      <div class="cat-card custom open" style="margin-bottom:10px">
-        <button class="card-delete" onclick="event.stopPropagation();this.parentElement.remove()" title="삭제">×</button>
-        <div class="cat-header" onclick="this.parentElement.classList.toggle('open')">
-          <h3>${labels.join(' · ')}${data.school_name ? ' (' + data.school_name + ')' : ''} <span class="cat-code-tag-sm">${expState.district === '전체' ? '전체' : expState.district + '구'}</span></h3>
-          <div class="cat-badge"><span class="chat-confidence ${cc}" style="margin:0">${conf}</span><span class="cat-toggle">▾</span></div>
-        </div>
-        <div class="cat-body">
-          ${anomalyText}${tableHtml}
-          <div class="cat-ai">
-            ${ai['해석'] ? `<div class="cat-ai-row"><span class="cat-ai-label">해석 </span><span class="cat-ai-value">${ai['해석']}</span></div>` : ''}
-            ${ai['정상사유'] ? `<div class="cat-ai-row"><span class="cat-ai-label">정상 사유 </span><span class="cat-ai-value">${ai['정상사유']}</span></div>` : ''}
-            ${ai['확인권장'] ? `<div class="cat-ai-row"><span class="cat-ai-label">확인 권장 </span><span class="cat-ai-value">${ai['확인권장']}</span></div>` : ''}
-          </div>
-        </div>
-      </div>`;
-
-    // 빈 안내 제거
-    const empty = area.querySelector('.exp-results-empty'); if (empty) empty.remove();
-    area.insertAdjacentHTML('afterbegin', cardHtml);
-    showNotify('분석 결과가 추가되었습니다');
-  } catch (e) {
-    const ld = document.getElementById('exp-loading'); if (ld) ld.remove();
-    console.warn('[explorer] 분석 실패', e);
-    area.insertAdjacentHTML('afterbegin', `<div style="color:var(--text-sub);padding:10px 12px;font-size:12px;background:var(--gray-50);border:1px solid var(--border);border-radius:6px;margin-bottom:10px">${FALLBACK_AI_TEXT}</div>`);
-  }
-}
+// (고급 탐색 기능은 nav에서 제거됨. /api/custom-analysis 백엔드는 추후 정리 위해 보존.)
 
 function showNotify(msg) {
   const n = document.createElement('div'); n.className = 'extend-notify'; n.textContent = msg;
@@ -967,7 +1357,7 @@ function updateChatContext() {
     const sname = allSchools.find(s => s.school_code === currentSchoolCode);
     title.textContent = `${sname ? sname.school_name : '이 학교'} · 후속 질문`;
     sub.textContent = '해당 학교 안에서 자연어로 추가 확인 질문을 보낼 수 있습니다. LLM은 판정하지 않고 확인을 돕습니다.';
-    chips.innerHTML = ['정상 예외 가능성을 더 설명해줘', '동료군 비교를 요약해줘', '급식비 추이도 같이 보고 싶어', '리포트 문장으로 정리해줘']
+    chips.innerHTML = ['이 학교 1분 브리핑 생성', '정상 예외 가능성을 더 설명해줘', '동료군 비교를 요약해줘', '리포트 문장으로 정리해줘']
       .map(t => `<button class="chip" onclick="sendChat('${t}')">${t}</button>`).join('');
     if (intro.dataset.schoolFor !== currentSchoolCode) {
       intro.innerHTML = `<div class="chat-msg system"><div class="msg-body">${sname ? sname.school_name : '이 학교'}에 대한 후속 질문을 보낼 수 있습니다.</div></div>`;
@@ -988,6 +1378,32 @@ function updateChatContext() {
 let _midSeq = 0;
 function addMsg(t, h) { const id = 'm' + (++_midSeq); const d = document.createElement('div'); d.className = `chat-msg ${t}`; d.id = id; d.innerHTML = `<div class="msg-body">${h}</div>`; document.getElementById('chat-messages').appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'end' }); return id; }
 function removeMsg(id) { const el = document.getElementById(id); if (el) el.remove(); }
+
+// §9: 챗봇 결과 카드 — 긴 헤더는 축약, 학교명·지수 강조
+const _CHAT_HEADER_SHORT = {
+  '검토 우선도 지수': '지수',
+  '관련 카테고리 수': '카테고리',
+  '대표 검토 신호': '대표 신호',
+  '검토 신호 수': '신호',
+  '지역구': '구',
+};
+function _chatHeaderShort(k) { return _CHAT_HEADER_SHORT[k] || k; }
+
+function _chatMiniCard(row) {
+  // 학교명·지수 우선 추출, 나머지는 row 리스트
+  const nameKey = ['학교명', 'school_name', '학교'].find(k => k in row);
+  const idxKey = ['검토 우선도 지수', 'score', '지수'].find(k => k in row);
+  const name = nameKey ? row[nameKey] : '';
+  const idx = idxKey ? row[idxKey] : '';
+  const skipKeys = new Set([nameKey, idxKey].filter(Boolean));
+  const rows = Object.entries(row).filter(([k]) => !skipKeys.has(k))
+    .map(([k, v]) => `<div class="cmc-row"><span class="cmc-row-l">${_chatHeaderShort(k)}</span><span class="cmc-row-v">${v == null ? '-' : v}</span></div>`)
+    .join('');
+  return `<div class="chat-mini-card">
+    <div class="cmc-head"><span class="cmc-name">${name || '결과'}</span>${idx !== '' ? `<span class="cmc-idx">지수 ${idx}</span>` : ''}</div>
+    ${rows}
+  </div>`;
+}
 
 async function sendChat(text) {
   const query = text || document.getElementById('chat-input').value.trim();
@@ -1022,8 +1438,19 @@ async function sendChat(text) {
     }
     const report = data.report || '', conf = data.confidence || '중간';
     const cc = conf === '높음' ? 'conf-high' : conf === '중간' ? 'conf-mid' : 'conf-low';
+
+    // §9: 1~3건이면 카드형, 4건+면 표 (접기로 제공)
+    let primary = '';
+    const rd = data.result_data || [];
+    if (rd.length > 0 && rd.length <= 3) {
+      primary = `<div class="chat-cards">${rd.map(row => _chatMiniCard(row)).join('')}</div>`;
+      if (tableHtml) primary += `<span class="chat-table-toggle" onclick="this.classList.toggle('open');const t=this.nextElementSibling;if(t)t.style.display=t.style.display==='none'?'':'none'">표 보기</span><div style="display:none;margin-top:4px">${tableHtml}</div>`;
+    } else if (tableHtml) {
+      primary = tableHtml;
+    }
+
     let html = `<div class="chat-card">`;
-    if (tableHtml) html += `<div class="chat-card-header">분석 결과<span class="chat-confidence ${cc}" style="margin:0">${conf}</span></div><div class="chat-card-body">${tableHtml}</div>`;
+    if (primary) html += `<div class="chat-card-header">분석 결과<span class="chat-confidence ${cc}" style="margin:0">${conf}</span></div><div class="chat-card-body">${primary}</div>`;
     if (report) {
       let parsed = marked.parse(report);
       parsed = parsed.replace(/(\d+\.?\d*%[p]?)/g, '<span class="hl">$1</span>');
@@ -1154,9 +1581,9 @@ function advGenRule() {
 
 const ADV_SCENARIOS = {
   1: {
-    title: "학급수 파싱 오류",
+    title: "학급수 파싱 불일치",
     sub: '"28(3)" 형태에서 28이 아닌 3을 추출',
-    root: { l: "학급수", v: "3", a: "28", d: "괄호 안 특수학급수(3)를 총 학급수로 잘못 추출" },
+    root: { l: "학급수", v: "3", a: "28", d: "괄호 안 특수학급수(3)를 총 학급수로 인식한 파싱 불일치. 입력값 확인 필요" },
     l1: [
       { l: "학급당학생수", v: "234.7명/학급", a: "25.1명/학급", f: "704 / 3 = 234.7" },
       { l: "학급수 변동률", v: "-89.3%", a: "+3.6%", f: "(3-28)/28 = -89.3%" },
@@ -1167,13 +1594,13 @@ const ADV_SCENARIOS = {
       { r: "C1-1", n: "학생↔학급 역방향", grade: "우선 검토", gc: "grade-priority", d: "학생 -1.7% / 학급 -89.3%" },
     ],
     imp: "검토 우선도 지수 15 — 우선 검토 대상 상위 진입",
-    fix: "학급수 원본값 '28(3)'의 파싱 정확성을 확인해 주세요. 괄호 앞 숫자(28)가 총 학급수입니다.",
+    fix: "학급수 원본값 '28(3)'의 파싱 정확성을 확인해 주세요. 괄호 앞 숫자(28)가 총 학급수, 괄호 안(3)이 특수학급수입니다.",
     detail: [
       { l: "학생수", v: "704명", s: "정상" },
-      { l: "학급수(파싱)", v: "3", s: "확인 필요 (실제 28)" },
-      { l: "학급당학생수", v: "234.7", s: "부풀림 (실제 25.1)" },
-      { l: "학급수 YoY", v: "-89.3%", s: "부풀림 (실제 +3.6%)" },
-      { l: "검토 우선도 지수", v: "15", s: "부풀림 (실제 ~6)" },
+      { l: "학급수(파싱)", v: "3", s: "입력값 확인 필요 (실제 28)" },
+      { l: "학급당학생수", v: "234.7", s: "원본 값 차이 영향 (실제 25.1)" },
+      { l: "학급수 YoY", v: "-89.3%", s: "원본 값 차이 영향 (실제 +3.6%)" },
+      { l: "검토 우선도 지수", v: "15", s: "원본 값 차이 영향 (실제 ~6)" },
     ],
   },
   2: {
@@ -1192,33 +1619,33 @@ const ADV_SCENARIOS = {
     fix: "급식비 입력단위가 '천원'인지 확인해 주세요 (매뉴얼 p39 Q1).",
     detail: [
       { l: "학생수", v: "740명", s: "정상" },
-      { l: "급식비 총액", v: "3,692,063,000원", s: "확인 필요 (실제 3,692,063천원)" },
-      { l: "급식비 YoY", v: "+99,900%", s: "부풀림 (실제 +2.3%)" },
-      { l: "1인당 급식비", v: "4,989,274원", s: "부풀림 (실제 4,989원)" },
-      { l: "검토 우선도 지수", v: "13", s: "부풀림" },
+      { l: "급식비 총액", v: "3,692,063,000원", s: "입력단위 확인 필요 (실제 3,692,063천원)" },
+      { l: "급식비 YoY", v: "+99,900%", s: "단위 차이 영향 (실제 +2.3%)" },
+      { l: "1인당 급식비", v: "4,989,274원", s: "단위 차이 영향 (실제 4,989원)" },
+      { l: "검토 우선도 지수", v: "13", s: "단위 차이 영향" },
     ],
   },
   3: {
-    title: "교원수 강사 포함 오류",
-    sub: "학교알리미 교원 총계(강사 포함)를 KESS 비교에 사용",
-    root: { l: "교원수 비교 기준", v: "강사 포함 82명", a: "강사 제외 72명", d: "학교알리미 총계에 강사(10명) 포함, KESS는 미포함" },
+    title: "교원수 비교 기준 차이",
+    sub: "학교알리미 교원 총계(강사 포함)와 KESS(강사 미포함) 기준 차이",
+    root: { l: "교원수 비교 기준", v: "강사 포함 82명", a: "강사 제외 72명", d: "학교알리미 총계에 강사(10명) 포함, KESS는 강사 미포함. 비교 기준 정합 확인 필요" },
     l1: [
       { l: "교원수 교차 차이", v: "10명 불일치", a: "0명 (보정 후)", f: "82 - 72 = 10" },
-      { l: "교원수 변동률", v: "+14.3%", a: "+2.8%", f: "강사 포함으로 과대 산출" },
+      { l: "교원수 변동률", v: "+14.3%", a: "+2.8%", f: "강사 포함 기준으로 과대 산출" },
     ],
     l2: [
       { r: "F1'-1", n: "교원수 교차 불일치", grade: "일반 검토", gc: "grade-normal", d: "학교알리미 82 vs KESS 72 (차이 10)" },
       { r: "B1-1", n: "교원수 급변동", grade: "일반 검토", gc: "grade-normal", d: "교원수 +14.3% (임계 10%)" },
       { r: "C1-3", n: "학생↔교원 불균형", grade: "일반 검토", gc: "grade-normal", d: "학생 +1.2% / 교원 +14.3%" },
     ],
-    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 검토 우선도 지수 부풀림",
+    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 검토 우선도 지수 상승",
     fix: "교원수 비교 시 강사를 제외해 주세요 (학교알리미 총계 - 강사(계) = KESS 비교용).",
     detail: [
       { l: "학교알리미 교원총계", v: "82명(강사 10명 포함)", s: "정의 차이" },
       { l: "KESS 교원수", v: "72명(강사 미포함)", s: "정상" },
-      { l: "교차 차이", v: "10명", s: "확인 필요 (보정 후 0)" },
-      { l: "교원수 YoY", v: "+14.3%", s: "과대 (실제 +2.8%)" },
-      { l: "탐지 영역", v: "3개 (F1+B1+C1)", s: "과대 (실제 0~1개)" },
+      { l: "교차 차이", v: "10명", s: "기준 차이 영향 (보정 후 0)" },
+      { l: "교원수 YoY", v: "+14.3%", s: "기준 차이 영향 (실제 +2.8%)" },
+      { l: "탐지 영역", v: "3개 (F1+B1+C1)", s: "기준 차이 영향 (실제 0~1개)" },
     ],
   },
 };
