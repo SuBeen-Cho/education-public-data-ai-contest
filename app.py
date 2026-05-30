@@ -1099,21 +1099,31 @@ async def rulelab(req: RuleLabRequest):
     sample = df.head(3).to_dict(orient='records')
 
     prompt = f"""너는 교육 공공데이터 검증 룰 생성 AI야.
-사용자가 자연어로 검증 조건을 설명하면:
-1. 조건을 해석해서 "interpretation" 키로 설명
-2. Python 함수 코드를 "code" 키로 생성 (pandas DataFrame 'df' 사용)
-3. 실제 데이터 컬럼: {cols[:30]}
-4. 샘플 데이터: {sample}
+사용자가 자연어로 검증 조건을 설명하면 구조화된 JSON으로 응답해.
+
+실제 데이터 컬럼: {cols[:30]}
+샘플 데이터 (3행): {sample}
 
 사용자 질문: {req.query}
 
-반드시 아래 JSON 형식으로만 응답:
+반드시 아래 JSON 형식으로만 응답 (다른 텍스트 금지):
 {{
-  "interpretation": "사용자 조건 해석 (한국어, 2~3문장)",
-  "code": "pandas로 df를 필터링하는 Python 코드 (result_df 변수에 결과 저장)",
-  "columns_used": ["사용한 컬럼명들"]
-}}
-JSON만 출력하고 다른 텍스트는 쓰지 마."""
+  "interpretation": "조건 해석 (한국어 2~3문장, HTML <b> 태그 사용 가능)",
+  "code": "pandas로 df를 필터링하는 Python 코드. result_df 변수에 결과 DataFrame 저장. import 금지, df와 pd만 사용.",
+  "columns_used": ["사용한 컬럼명"],
+  "primary_condition": {{
+    "label": "주 조건",
+    "value": "조건 요약 (예: 학생수 전년 대비 10% 이상 감소)",
+    "desc": "설명 (예: 작년보다 학생이 얼마나 줄었는지)"
+  }},
+  "secondary_condition": {{
+    "label": "보조 조건",
+    "value": "조건 요약 (예: 교원수 변동 5% 이내)",
+    "desc": "설명 (예: 교원수가 크게 안 변했는지)"
+  }},
+  "risk_level": 1~3 중 정수 (3=학생안전/재정, 2=자원배분, 1=통계참고),
+  "risk_name": "위험 분류명 (예: 자원 배분, 재정 연동, 학생 안전)"
+}}"""
 
     try:
         response = client.models.generate_content(
