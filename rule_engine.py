@@ -1,10 +1,12 @@
 """
-rule_engine.py — 룰셋 v3 Python 구현 (코드_수정_가이드라인.html 2026-05-29 반영)
+rule_engine.py — 룰셋 v4 Python 구현 (2026-05-30 점수제 전환).
 
 · 룰별 상태 메타: active(실행 가능) / needs_mapping(컬럼 매핑 확인 필요) /
   no_source_confirmed(원천 범위에서 확인 불가)
 · "오류·이상치" 단정 X. 검토 신호·확인 필요 어조 유지.
-· 별 등급은 내부 메타. 사용자 노출은 검토 우선도 지수.
+· 점수 메타 (v4): risk(w_d 위험도) + m_type(연속·이진·고정·비대칭) + m_* 파라미터.
+  스코어러(priority_scorer)가 RULE_META를 읽어 s_r = w_d × min(2, m_r)를 계산.
+· star(별 등급)은 내부 호환용 잔존. 사용자 노출 금지, 점수 계산에 미사용.
 """
 
 import pandas as pd
@@ -12,46 +14,109 @@ import numpy as np
 from dataclasses import dataclass
 
 
-# ── 룰 메타 (구현/매핑/사용 컬럼/카테고리/별 등급) ──
+# ── 룰 메타 (구현/매핑/사용 컬럼/카테고리/점수 메타) ──
 # status: 'active' | 'needs_mapping' | 'no_source_confirmed'
+#
+# 점수 메타 (v4):
+#   risk      : w_d (5 · 3 · 2 · 0). 0이면 점수 미산정(비활성).
+#   m_type    : 'continuous' | 'binary' | 'fixed' | 'asymmetric'
+#   m_const   : fixed 전용 — 고정 m_r 상수 (0~2).
+#   m_threshold: continuous 전용 — 임계값. m_r = (|values[m_source]| - thresh)/thresh.
+#   m_min_size: binary 전용 — 최소 규모. m_r = |values[m_source]| / min_size.
+#   m_source  : continuous/binary/asymmetric — 탐지 dict 안 값 키.
+#   m_down/m_up: asymmetric (C5-1) — 음수/양수 방향 비대칭 임계.
 RULE_META = {
-    # C1 학생·자원 연동
-    "C1-1":  {"category": "C1", "name": "학생↔학급 역방향 변동",       "star": 3, "status": "active", "cols": ["student_count", "class_count"]},
-    "C1-2":  {"category": "C1", "name": "학생↔학급 완만 역방향 변동",   "star": 2, "status": "active", "cols": ["student_count", "class_count"]},
-    "C1-3":  {"category": "C1", "name": "학생↔교원 불균형",            "star": 2, "status": "active", "cols": ["student_count_yoy", "teacher_no_inst_yoy", "teacher_count_no_instructor"]},
-    "C1-4":  {"category": "C1", "name": "학급↔교원 불균형",            "star": 1, "status": "active", "cols": ["class_count", "teacher_count_no_instructor"]},
-    "C1-5":  {"category": "C1", "name": "학생↔보직교사 불균형",         "star": 1, "status": "active", "cols": ["student_count_yoy", "head_teacher_count"]},
-    "C1-7":  {"category": "C1", "name": "교원1인당학생수 급변",         "star": 1, "status": "active", "cols": ["students_per_teacher"]},
-    "C1-8":  {"category": "C1", "name": "학급당학생수 급변",            "star": 3, "status": "active", "cols": ["students_per_class"]},
-    # C3 미조치 피해
-    "C3-3A": {"category": "C3", "name": "미조치 피해 (강력)",          "star": 3, "status": "active", "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"]},
-    "C3-3B": {"category": "C3", "name": "미조치 피해 (참고)",          "star": 2, "status": "active", "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"]},
-    # B1 전년 대비 급변동
-    "B1-1":  {"category": "B1", "name": "학생·학급·교원 급변동(이중)",  "star": 2, "status": "active", "cols": ["student_count", "class_count", "teacher_count"]},
-    "B1-2":  {"category": "B1", "name": "학생·학급·교원 급변동(단년)",  "star": 2, "status": "active", "cols": ["student_count", "class_count", "teacher_count"]},
-    "B1-3":  {"category": "B1", "name": "학교회계 변동",               "star": 2, "status": "active", "cols": ["budget_revenue", "budget_expense"]},
-    "B1-4":  {"category": "B1", "name": "학교회계 강한 변동",           "star": 3, "status": "active", "cols": ["budget_revenue", "budget_expense"]},
-    "B1-5":  {"category": "B1", "name": "진학률 급변동",               "star": 2, "status": "active", "cols": ["graduation_rate"]},
-    "B1-6":  {"category": "B1", "name": "학폭 심의 급증",              "star": 3, "status": "active", "cols": ["bullying_cases"]},
-    # D2 유사학교 대비
-    "D2-1":  {"category": "D2", "name": "유사학교 대비 상하위 10%",    "star": 2, "status": "active", "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"]},
-    "D2-2":  {"category": "D2", "name": "유사학교 대비 극단값",        "star": 3, "status": "active", "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"]},
-    # C2 학생·재정 연동
-    "C2-3":  {"category": "C2", "name": "급식비 변동",                 "star": 2, "status": "active", "cols": ["meal_cost_total", "student_count"]},
-    "C2-3+": {"category": "C2", "name": "급식비 강한 변동",            "star": 3, "status": "active", "cols": ["meal_cost_total", "student_count"]},
-    # E2 수치 미갱신
-    "E2-2":  {"category": "E2", "name": "3년 동일값 반복",             "star": 2, "status": "active", "cols": ["student_count", "teacher_count", "class_count", "meal_cost_per_student", "meal_cost_total", "students_per_class", "students_per_teacher", "graduation_rate", "budget_revenue", "budget_expense"]},
-    # E1 누락
-    "E1-1":  {"category": "E1", "name": "3년 연속 미입력",             "star": 2, "status": "active", "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"]},
-    "E1-2":  {"category": "E1", "name": "단독 미입력 (동료군 다 입력)", "star": 3, "status": "active", "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"]},
+    # C1 학생·자원 연동 (위험도 3)
+    "C1-1":  {"category": "C1", "name": "학생↔학급 역방향 변동",       "star": 3, "status": "active",
+              "cols": ["student_count", "class_count"],
+              "risk": 3, "m_type": "binary",     "m_source": "class_diff",   "m_min_size": 2},
+    "C1-2":  {"category": "C1", "name": "학생↔학급 완만 역방향 변동",   "star": 2, "status": "active",
+              "cols": ["student_count", "class_count"],
+              "risk": 3, "m_type": "fixed",      "m_const": 0.5},  # 학급 1개=최소 단위
+    "C1-3":  {"category": "C1", "name": "학생↔교원 불균형",            "star": 2, "status": "active",
+              "cols": ["student_count_yoy", "teacher_no_inst_yoy", "teacher_count_no_instructor"],
+              "risk": 3, "m_type": "continuous", "m_source": "teacher_yoy",  "m_threshold": 10},
+    "C1-4":  {"category": "C1", "name": "학급↔교원 불균형",            "star": 1, "status": "active",
+              "cols": ["class_count", "teacher_count_no_instructor"],
+              "risk": 3, "m_type": "binary",     "m_source": "teacher_diff", "m_min_size": 5},
+    "C1-5":  {"category": "C1", "name": "학생↔보직교사 불균형",         "star": 1, "status": "active",
+              "cols": ["student_count_yoy", "head_teacher_count"],
+              "risk": 0, "m_type": "fixed",      "m_const": 0,
+              "mapping_note": "v4: 정의서·코드 조건 불일치로 점수 미산정(비활성). 탐지는 유지."},
+    "C1-7":  {"category": "C1", "name": "교원1인당학생수 급변",         "star": 1, "status": "active",
+              "cols": ["students_per_teacher"],
+              "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 20},
+    "C1-8":  {"category": "C1", "name": "학급당학생수 급변",            "star": 3, "status": "active",
+              "cols": ["students_per_class"],
+              "risk": 3, "m_type": "continuous", "m_source": "diff",         "m_threshold": 1.5},
+    # C3 미조치 피해 (위험도 5)
+    "C3-3A": {"category": "C3", "name": "미조치 피해 (강력)",          "star": 3, "status": "active",
+              "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"],
+              "risk": 5, "m_type": "binary",     "m_source": "victims",      "m_min_size": 3},
+    "C3-3B": {"category": "C3", "name": "미조치 피해 (참고)",          "star": 2, "status": "active",
+              "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"],
+              "risk": 5, "m_type": "binary",     "m_source": "victims",      "m_min_size": 3},
+    # B1 전년 대비 급변동 (위험도 3)
+    "B1-1":  {"category": "B1", "name": "학생·학급·교원 급변동(이중)",  "star": 2, "status": "active",
+              "cols": ["student_count", "class_count", "teacher_count"],
+              "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 10},
+    "B1-2":  {"category": "B1", "name": "학생·학급·교원 급변동(단년)",  "star": 2, "status": "active",
+              "cols": ["student_count", "class_count", "teacher_count"],
+              "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 10},
+    "B1-3":  {"category": "B1", "name": "학교회계 변동",               "star": 2, "status": "active",
+              "cols": ["budget_revenue", "budget_expense"],
+              "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 30},
+    "B1-4":  {"category": "B1", "name": "학교회계 강한 변동",           "star": 3, "status": "active",
+              "cols": ["budget_revenue", "budget_expense"],
+              "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 50},
+    "B1-5":  {"category": "B1", "name": "진학률 급변동",               "star": 2, "status": "active",
+              "cols": ["graduation_rate"],
+              "risk": 3, "m_type": "continuous", "m_source": "diff_pp",      "m_threshold": 15},
+    "B1-6":  {"category": "B1", "name": "학폭 심의 급증",              "star": 3, "status": "active",
+              "cols": ["bullying_cases"],
+              "risk": 3, "m_type": "binary",     "m_source": "curr",         "m_min_size": 5},
+    # D2 유사학교 대비 (위험도 2)
+    "D2-1":  {"category": "D2", "name": "유사학교 대비 상하위 10%",    "star": 2, "status": "active",
+              "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"],
+              "risk": 2, "m_type": "fixed",      "m_const": 0.8},
+    "D2-2":  {"category": "D2", "name": "유사학교 대비 극단값",        "star": 3, "status": "active",
+              "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"],
+              "risk": 2, "m_type": "fixed",      "m_const": 1.0},
+    # C2 학생·재정 연동 (위험도 3)
+    "C2-3":  {"category": "C2", "name": "급식비 변동",                 "star": 2, "status": "active",
+              "cols": ["meal_cost_total", "student_count"],
+              "risk": 3, "m_type": "continuous", "m_source": "meal_yoy",     "m_threshold": 10},
+    "C2-3+": {"category": "C2", "name": "급식비 강한 변동",            "star": 3, "status": "active",
+              "cols": ["meal_cost_total", "student_count"],
+              "risk": 3, "m_type": "continuous", "m_source": "meal_yoy",     "m_threshold": 30},
+    # E2 수치 미갱신 (위험도 2, E 대분류로 통합)
+    "E2-2":  {"category": "E2", "name": "3년 동일값 반복",             "star": 2, "status": "active",
+              "cols": ["student_count", "teacher_count", "class_count", "meal_cost_per_student", "meal_cost_total", "students_per_class", "students_per_teacher", "graduation_rate", "budget_revenue", "budget_expense"],
+              "risk": 2, "m_type": "fixed",      "m_const": 0.8},
+    # E1 누락 (위험도 2)
+    "E1-1":  {"category": "E1", "name": "3년 연속 미입력",             "star": 2, "status": "active",
+              "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"],
+              "risk": 2, "m_type": "fixed",      "m_const": 0.5},
+    "E1-2":  {"category": "E1", "name": "단독 미입력 (동료군 다 입력)", "star": 3, "status": "active",
+              "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"],
+              "risk": 2, "m_type": "fixed",      "m_const": 1.0},
     "E1-3":  {"category": "E1", "name": "공시 의무 항목 미제출",       "star": 2, "status": "needs_mapping",
-              "cols": [], "mapping_note": "학교 유형별 공시 의무 항목 매핑 테이블이 원천 범위에서 단일 확정 불가. 현재 수집 범위에서 '의무 vs 선택' 구분 컬럼 확인 필요."},
-    # C5 학년 진급
-    "C5-1":  {"category": "C5", "name": "진급 시 학생 이탈",           "star": 3, "status": "active", "cols": ["grade1_students", "grade2_students"]},
-    # F1' 교차 불일치
-    "F1'-1": {"category": "F1", "name": "교원수 교차 불일치",          "star": 2, "status": "active", "cols": ["teacher_count_no_instructor", "kess_teacher_total"]},
-    # G1 장기 추세 점검 (신규 카테고리 — 단년 급변 X, 3년 누적 단조 변화)
-    "G1-1":  {"category": "G1", "name": "3년 단조 추세",               "star": 2, "status": "active", "cols": ["student_count", "teacher_count", "graduation_rate", "meal_cost_per_student"]},
+              "cols": [],
+              "risk": 2, "m_type": "fixed",      "m_const": 1.0,
+              "mapping_note": "학교 유형별 공시 의무 항목 매핑 테이블이 원천 범위에서 단일 확정 불가. 현재 수집 범위에서 '의무 vs 선택' 구분 컬럼 확인 필요."},
+    # C5 학년 진급 (위험도 2, 비대칭 임계)
+    "C5-1":  {"category": "C5", "name": "진급 시 학생 이탈",           "star": 3, "status": "active",
+              "cols": ["grade1_students", "grade2_students"],
+              "risk": 2, "m_type": "asymmetric", "m_source": "rate",
+              "m_down": 7, "m_up": 3},
+    # F1' 교차 불일치 (위험도 3)
+    "F1'-1": {"category": "F1", "name": "교원수 교차 불일치",          "star": 2, "status": "active",
+              "cols": ["teacher_count_no_instructor", "kess_teacher_total"],
+              "risk": 3, "m_type": "binary",     "m_source": "diff",         "m_min_size": 3},
+    # G1 장기 추세 점검 (위험도 2, 신규)
+    "G1-1":  {"category": "G1", "name": "3년 단조 추세",               "star": 2, "status": "active",
+              "cols": ["student_count", "teacher_count", "graduation_rate", "meal_cost_per_student"],
+              "risk": 2, "m_type": "continuous", "m_source": "cumulative_pct", "m_threshold": 8},
 }
 
 
@@ -130,7 +195,8 @@ class RuleEngine:
             "school_code": d.school_code, "school_name": d.school_name,
             "year": d.year, "rule_id": d.rule_id, "rule_name": d.rule_name,
             "star": d.star, "category": d.category,
-            "detail": d.detail, "values": str(d.values),
+            # values는 dict 그대로 보관 (스코어러가 m_r 산식에 사용).
+            "detail": d.detail, "values": d.values if isinstance(d.values, dict) else {},
             # 동적 컬럼 매핑용 — values dict에 col_key/col_label이 있으면 노출 (E2-2 등 다중 컬럼 룰)
             "col_key": d.values.get("col_key", "") if isinstance(d.values, dict) else "",
             "col_label": d.values.get("col_label", "") if isinstance(d.values, dict) else "",

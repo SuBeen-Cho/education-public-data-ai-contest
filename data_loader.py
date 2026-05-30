@@ -1,6 +1,7 @@
 """
 data_loader.py — 공공데이터 xlsx 로드 및 통합 DataFrame 생성
-실제 컬럼 매핑 기반 (2025-05-26 검증 완료)
+2026-05-30: 서울 일반고 210교 / 25개 자치구 / 2023~2025 3년치
+데이터 소스: 공공데이터 수집_0530/서울일반고_연도별통합/
 """
 
 import pandas as pd
@@ -8,40 +9,46 @@ import numpy as np
 import re
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent.parent / "공공데이터수집_20260518기준" / "3_연도별통합"
+# 새 데이터 루트
+DATA_DIR = Path(__file__).parent.parent / "공공데이터 수집_0530" / "서울일반고_연도별통합"
 SCHOOL_DIR = DATA_DIR / "학교알리미_연도별통합"
 KESS_DIR = DATA_DIR / "KESS_연도별통합"
+NEIS_DIR = DATA_DIR / "NEIS_통합"
 
-# ── 실제 컬럼명 매핑 (xlsx에서 확인) ──
+# 학폭 별도 폴더 (서울시 전체 — 일반고 외 학교 포함 가능)
+# 현 구조에서는 학교알리미 '학교폭력심의결과' 시트가 이미 일반고 필터되어 있고
+# 선도교육조치건수 컬럼까지 포함하므로, 별도 폴더는 백업/검증용으로만 보존.
+BULLY_FALLBACK_DIR = Path(__file__).parent.parent / "공공데이터 수집_0530" / "학교폭력심의결과_서울시전체"
+
+# ── 학교알리미 메인 시트 컬럼 매핑 ──
 SCHOOL_COLS = {
-    "school_name": "학교명",                                   # [0]
-    "district_raw": "지역",                                    # [3] "서울특별시 강남구"
-    "school_code": "정보공시 학교코드",                          # [4]
-    "school_type": "설립구분",                                  # [6]
-    "student_count": "학사_학생_성별학생수__계",                  # [278]
-    "class_count_raw": "학사_학생_학교 현황__학급수(계)",          # [318] "28(3)" 형태!
-    "student_count_display": "학사_학생_학교 현황__학생수(계)",    # [319]
-    "students_per_class_raw": "학사_학생_학교 현황__학급당학생수",  # [320]
-    "teacher_count": "교원_자격종별교원현황__계",                  # [51]
-    "meal_cost_total": "급식_급식비부담주체__금액 계",             # [120]
-    "meal_cost_per_student": "급식_급식비지출내역__학생 1인당 급식비 (1식 기준)", # [122]
-    "meal_student_count": "급식_급식실시현황__급식 학생수",        # [125]
+    "school_name": "학교명",
+    "district_raw": "지역",                                       # "서울특별시 강남구"
+    "school_code": "정보공시 학교코드",
+    "school_type": "설립구분",                                     # 공립/사립
+    "student_count": "학사_학생_성별학생수__계",
+    "class_count_raw": "학사_학생_학교 현황__학급수(계)",            # "28(3)" 형태
+    "student_count_display": "학사_학생_학교 현황__학생수(계)",
+    "students_per_class_raw": "학사_학생_학교 현황__학급당학생수",
+    "teacher_count": "교원_자격종별교원현황__계",
+    "meal_cost_total": "급식_급식비부담주체__금액 계",
+    "meal_cost_per_student": "급식_급식비지출내역__학생 1인당 급식비 (1식 기준)",
+    "meal_student_count": "급식_급식실시현황__급식 학생수",
     # 강사 보정용 (F1' 교차검증, C1 교원 비교)
-    "teacher_total_position": "교원_직위별교원현황__총계 (계)",    # [107] 직위별 총계 (강사 포함)
-    "instructor_count": "교원_직위별교원현황__강사 (계)",          # [103] 강사수
-    # 학년별 학생수 (C5-1: 진급 시 학생 이탈)
+    "teacher_total_position": "교원_직위별교원현황__총계 (계)",
+    "instructor_count": "교원_직위별교원현황__강사 (계)",
+    # 학년별 학생수 (C5-1)
     "grade1_male": "학사_학생_성별학생수__1학년(남)",
     "grade1_female": "학사_학생_성별학생수__1학년(여)",
     "grade2_male": "학사_학생_성별학생수__2학년(남)",
     "grade2_female": "학사_학생_성별학생수__2학년(여)",
     "grade3_male": "학사_학생_성별학생수__3학년(남)",
     "grade3_female": "학사_학생_성별학생수__3학년(여)",
-    # 보직교사 (C1-5: 학생↔보직교사 불균형)
+    # 보직교사 (C1-5)
     "head_teacher_count": "교원_직위별교원현황__보직교사 (계)",
 }
 
-# 학교회계 세입/세출 결산 (B1-3 / B1-4)
-# 공립=국공립회계, 사립=사립교비회계 — 6개 카테고리 합산
+# 학교회계 세입/세출 결산 (B1-3 / B1-4) — 공·사립 자동 분기
 PUBLIC_REVENUE_COLS = [
     "재정_국공립회계세입결산서__정부이전수입",
     "재정_국공립회계세입결산서__기타이전수입",
@@ -79,8 +86,7 @@ PRIVATE_EXPENSE_COLS = [
     "재정_사립교비회계세출결산서__학교 재무활동",
 ]
 
-# 시설/공시 컬럼 (E1-1, E1-2, E1-3: 입력 패턴 점검)
-# 표시 컬럼은 단순화: 시설 항목 7개로 한정. 각 학교별 NaN 여부로 누락 패턴 추적.
+# 시설 (E1-1, E1-2)
 FACILITY_COLS = {
     "fc_changing_room": "시설_교사현황__학생탈의실",
     "fc_shower": "시설_교사현황__학생샤워실",
@@ -91,27 +97,31 @@ FACILITY_COLS = {
     "fc_computer_room": "시설_교사현황__학습지원공간 컴퓨터실",
 }
 
+# 학폭 — 학교알리미 '학교폭력심의결과' 시트 (이미 일반고 필터됨)
+# 선도교육조치건수 = 가해학생 선도조치 (C3-3A 변경에 필요)
 BULLY_COLS = {
-    "cases_1": "사안심의__1학기_심의건수",           # [4]
-    "cases_2": "사안심의__2학기_심의건수",           # [10]
-    "victims_1": "사안심의__1학기_피해학생_학생수",    # [6]
-    "victims_2": "사안심의__2학기_피해학생_학생수",    # [12]
-    "protection_1": "사안심의__1학기_피해학생_보호조치건수", # [7]
-    "protection_2": "사안심의__2학기_피해학생_보호조치건수", # [13]
-    "perpetrator_1": "사안심의__1학기_가해학생_학생수",      # [8]
-    "perpetrator_2": "사안심의__2학기_가해학생_학생수",      # [14]
+    "cases_1":        "사안심의__1학기_심의건수",
+    "cases_2":        "사안심의__2학기_심의건수",
+    "victims_1":      "사안심의__1학기_피해학생_학생수",
+    "victims_2":      "사안심의__2학기_피해학생_학생수",
+    "protection_1":   "사안심의__1학기_피해학생_보호조치건수",
+    "protection_2":   "사안심의__2학기_피해학생_보호조치건수",
+    "perpetrator_1":  "사안심의__1학기_가해학생_학생수",
+    "perpetrator_2":  "사안심의__2학기_가해학생_학생수",
+    "discipline_1":   "사안심의__1학기_가해학생_선도교육조치건수",
+    "discipline_2":   "사안심의__2학기_가해학생_선도교육조치건수",
 }
 
 KESS_COLS = {
-    "school_name": "학교명",                    # [12]
-    "year": "연도",                              # [1]
-    "semester": "반기",                          # [0]
-    "kess_student_count": "일반학급_학생수_계",    # [29]
-    "kess_class_count": "편성학급수_계",           # [36]
-    "kess_teacher_total": "교원수_총계_계",        # [65]
-    "kess_teacher_regular": "교원수_정규_계",      # [68]
-    "graduation_rate": "진학률 _전체(%)",          # [125]
-    "students_per_teacher_kess": "교원1인당 학생수", # [107]
+    "school_name": "학교명",
+    "year": "연도",
+    "semester": "반기",
+    "kess_student_count": "일반학급_학생수_계",
+    "kess_class_count": "편성학급수_계",
+    "kess_teacher_total": "교원수_총계_계",
+    "kess_teacher_regular": "교원수_정규_계",
+    "graduation_rate": "진학률 _전체(%)",
+    "students_per_teacher_kess": "교원1인당 학생수",
 }
 
 
@@ -140,17 +150,23 @@ def safe_numeric(val):
 
 
 def extract_district(raw: str) -> str:
-    """'서울특별시 강남구' → '강남'"""
+    """'서울특별시 강남구' → '강남' (서울 25개 자치구 전체 대응)"""
     if pd.isna(raw):
         return ""
     s = str(raw).strip()
-    match = re.search(r'(노원|강남|관악)', s)
-    return match.group(1) if match else s.split()[-1].replace("구", "")
+    # 마지막 토큰이 'OO구' 형태면 그 앞 글자만
+    tokens = s.split()
+    if tokens:
+        last = tokens[-1]
+        if last.endswith("구"):
+            return last[:-1]
+        return last
+    return s
 
 
 def load_school_alimi(year: int) -> pd.DataFrame:
-    """학교알리미 메인+학폭 시트 로드"""
-    path = SCHOOL_DIR / f"{year}_학교알리미_후처리.xlsx"
+    """학교알리미 메인+학폭 시트 로드 (210교 / 25개 자치구)"""
+    path = SCHOOL_DIR / f"{year}_서울일반고_학교알리미.xlsx"
     df_raw = pd.read_excel(path, sheet_name="메인")
 
     result = pd.DataFrame()
@@ -163,7 +179,7 @@ def load_school_alimi(year: int) -> pd.DataFrame:
     # 학생수
     result["student_count"] = df_raw[SCHOOL_COLS["student_count"]].apply(safe_numeric)
 
-    # 학급수 — "28(3)" 파싱!
+    # 학급수 — "28(3)" 파싱
     result["class_count"] = df_raw[SCHOOL_COLS["class_count_raw"]].apply(parse_class_count)
 
     # 교원수
@@ -224,7 +240,8 @@ def load_school_alimi(year: int) -> pd.DataFrame:
     rev_list, exp_list = [], []
     for i in range(len(df_raw)):
         st = school_type_series.iloc[i]
-        if st == "공립":
+        # 공립·국립은 국공립회계, 사립은 사립교비회계, 미상은 사립으로 fallback
+        if st in ("공립", "국립"):
             rev_list.append(_sum_cols(i, PUBLIC_REVENUE_COLS))
             exp_list.append(_sum_cols(i, PUBLIC_EXPENSE_COLS))
         else:  # 사립 (또는 미상 → 사립으로 fallback)
@@ -240,7 +257,7 @@ def load_school_alimi(year: int) -> pd.DataFrame:
         else:
             result[our_name] = np.nan
 
-    # 학폭 시트
+    # 학폭 시트 — 같은 파일 내 '학교폭력심의결과' 시트 (이미 일반고 필터됨)
     try:
         df_bully = pd.read_excel(path, sheet_name="학교폭력심의결과")
         bully = pd.DataFrame()
@@ -256,17 +273,32 @@ def load_school_alimi(year: int) -> pd.DataFrame:
         bully["bullying_victims"] = bully["victims_1"] + bully["victims_2"]
         bully["bullying_protection"] = bully["protection_1"] + bully["protection_2"]
         bully["bullying_perpetrators"] = bully["perpetrator_1"] + bully["perpetrator_2"]
-        bully = bully[["school_name", "bullying_cases", "bullying_victims", "bullying_protection", "bullying_perpetrators"]]
+        # C3-3A: 선도조치 건수 (가해학생 선도교육조치건수 합계)
+        bully["bullying_discipline"] = bully["discipline_1"] + bully["discipline_2"]
+
+        bully = bully[[
+            "school_name",
+            "bullying_cases", "bullying_victims",
+            "bullying_protection", "bullying_perpetrators",
+            "bullying_discipline",
+        ]]
+
+        # 일반고 필터링: 메인 시트의 학교명과 교집합만 남김
+        main_schools = set(result["school_name"].dropna())
+        before = len(bully)
+        bully = bully[bully["school_name"].isin(main_schools)].copy()
+        if before != len(bully):
+            print(f"  [INFO] {year} 학폭 시트 일반고 필터: {before}→{len(bully)}행")
 
         result = result.merge(bully, on="school_name", how="left")
     except Exception as e:
         print(f"  [WARN] {year} 학폭 시트 로드 실패: {e}")
-        result["bullying_cases"] = 0
-        result["bullying_victims"] = 0
-        result["bullying_protection"] = 0
-        result["bullying_perpetrators"] = 0
+        for bc in ("bullying_cases", "bullying_victims", "bullying_protection",
+                   "bullying_perpetrators", "bullying_discipline"):
+            result[bc] = 0
 
-    for bc in ["bullying_cases", "bullying_victims", "bullying_protection", "bullying_perpetrators"]:
+    for bc in ("bullying_cases", "bullying_victims", "bullying_protection",
+               "bullying_perpetrators", "bullying_discipline"):
         result[bc] = result[bc].fillna(0).astype(int)
 
     return result
@@ -274,8 +306,7 @@ def load_school_alimi(year: int) -> pd.DataFrame:
 
 def load_kess(year: int) -> pd.DataFrame:
     """KESS 데이터 로드 (상반기 기준)"""
-    path = KESS_DIR / f"{year}_KESS_후처리.xlsx"
-    # 시트명이 '통합'일 수 있음
+    path = KESS_DIR / f"{year}_서울일반고_KESS.xlsx"
     try:
         df_raw = pd.read_excel(path, sheet_name="통합")
     except Exception:
@@ -292,9 +323,8 @@ def load_kess(year: int) -> pd.DataFrame:
         else:
             result[our_name] = np.nan
 
-    # 숫자 변환
-    for col in ["kess_student_count", "kess_class_count", "kess_teacher_total",
-                 "kess_teacher_regular", "graduation_rate", "students_per_teacher_kess"]:
+    for col in ("kess_student_count", "kess_class_count", "kess_teacher_total",
+                "kess_teacher_regular", "graduation_rate", "students_per_teacher_kess"):
         if col in result.columns:
             result[col] = result[col].apply(safe_numeric)
 
@@ -306,11 +336,11 @@ def load_and_merge_all() -> pd.DataFrame:
     """3년치 데이터 로드 → 통합 DataFrame"""
     frames = []
 
-    for year in [2023, 2024, 2025]:
+    for year in (2023, 2024, 2025):
         print(f"[INFO] {year}년 데이터 로드 중...")
         try:
             df_school = load_school_alimi(year)
-            print(f"  학교알리미: {len(df_school)}행")
+            print(f"  학교알리미: {len(df_school)}행 (학교 {df_school['school_name'].nunique()}교)")
         except Exception as e:
             print(f"  [ERROR] 학교알리미 {year}: {e}")
             continue
@@ -318,13 +348,12 @@ def load_and_merge_all() -> pd.DataFrame:
         try:
             df_kess = load_kess(year)
             print(f"  KESS: {len(df_kess)}행")
-            # 학교명 기준 병합
             kess_merge_cols = [c for c in df_kess.columns if c not in ("year",)]
             df_merged = df_school.merge(
                 df_kess[kess_merge_cols],
                 left_on="school_name",
                 right_on="school_name",
-                how="left"
+                how="left",
             )
         except Exception as e:
             print(f"  [WARN] KESS {year} 병합 실패: {e}")
@@ -338,11 +367,7 @@ def load_and_merge_all() -> pd.DataFrame:
     df = pd.concat(frames, ignore_index=True)
     print(f"\n[INFO] 통합 완료: {len(df)}행 x {len(df.columns)}열")
 
-    # 파생값 계산
     df = calculate_derived(df)
-    # 가명 처리
-    df = anonymize(df)
-
     return df
 
 
@@ -352,13 +377,13 @@ def calculate_derived(df: pd.DataFrame) -> pd.DataFrame:
     df["students_per_class"] = np.where(
         df["class_count"] > 0,
         (df["student_count"] / df["class_count"]).round(1),
-        np.nan
+        np.nan,
     )
     # 교원 1인당 학생수
     df["students_per_teacher"] = np.where(
         df["teacher_count"] > 0,
         (df["student_count"] / df["teacher_count"]).round(1),
-        np.nan
+        np.nan,
     )
 
     # 전년 대비 변동률 (학교별)
@@ -372,8 +397,7 @@ def calculate_derived(df: pd.DataFrame) -> pd.DataFrame:
     ]
     for col in yoy_cols:
         if col in df.columns:
-            df[f"{col}_yoy"] = df.groupby("school_code")[col].pct_change() * 100
-    # 별칭 (가이드라인 명세 일치)
+            df[f"{col}_yoy"] = df.groupby("school_code")[col].pct_change(fill_method=None) * 100
     if "teacher_count_no_instructor_yoy" in df.columns:
         df["teacher_no_inst_yoy"] = df["teacher_count_no_instructor_yoy"]
 
@@ -381,7 +405,8 @@ def calculate_derived(df: pd.DataFrame) -> pd.DataFrame:
     peer_cols = [
         "student_count", "class_count", "teacher_count",
         "students_per_class", "students_per_teacher",
-        "bullying_cases", "bullying_victims", "bullying_protection", "bullying_perpetrators",
+        "bullying_cases", "bullying_victims", "bullying_protection",
+        "bullying_perpetrators", "bullying_discipline",
         "graduation_rate", "meal_cost_total", "meal_cost_per_student",
     ]
     for col in peer_cols:
@@ -391,25 +416,11 @@ def calculate_derived(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def anonymize(df: pd.DataFrame) -> pd.DataFrame:
-    """가명 처리"""
-    df["school_name_original"] = df["school_name"]
-    prefix_map = {"노원": "A", "강남": "B", "관악": "C"}
-    anon_map = {}
-    for district in sorted(df["district"].unique()):
-        p = prefix_map.get(district, "X")
-        schools = sorted(df[df["district"] == district]["school_name"].unique())
-        for i, s in enumerate(schools, 1):
-            anon_map[s] = f"서울 {district}구 {p}{i:02d}고"
-    df["school_name_anon"] = df["school_name"].map(anon_map)
-    return df
-
-
 def get_column_descriptions() -> dict:
-    # 실명 정책: 가명 컬럼은 LLM 노출에서 제외 (school_name만 단일 출처)
+    # 실명 정책: 가명 컬럼 미생성. school_name 단일 출처.
     return {
         "school_name": "학교명",
-        "district": "구 (노원/강남/관악)",
+        "district": "구 (서울 25개 자치구)",
         "school_type": "설립유형 (공립/사립)",
         "year": "연도 (2023/2024/2025)",
         "student_count": "학생수",
@@ -420,6 +431,8 @@ def get_column_descriptions() -> dict:
         "bullying_cases": "학폭 심의 건수 (1+2학기 합계)",
         "bullying_victims": "피해학생 수 (1+2학기 합계)",
         "bullying_protection": "보호조치 건수 (1+2학기 합계)",
+        "bullying_perpetrators": "가해학생 수 (1+2학기 합계)",
+        "bullying_discipline": "선도교육조치 건수 (1+2학기 합계)",
         "meal_cost_total": "급식비 총액",
         "meal_cost_per_student": "학생 1인당 급식비 (1식)",
         "kess_student_count": "KESS 학생수 (교차검증)",
@@ -439,13 +452,29 @@ if __name__ == "__main__":
     print(f"학교 수: {df['school_name'].nunique()}")
     print(f"연도: {sorted(df['year'].unique())}")
     print(f"구 분포: {df.groupby('district')['school_name'].nunique().to_dict()}")
-    print(f"\n핵심 컬럼 결측률:")
-    for c in ["student_count", "class_count", "teacher_count", "bullying_cases", "kess_student_count", "graduation_rate"]:
+    print(f"설립 유형 분포: {df['school_type'].value_counts().to_dict()}")
+    print(f"\n핵심 컬럼 non-null 비율:")
+    cols = [
+        "student_count", "class_count", "teacher_count",
+        "teacher_count_no_instructor", "head_teacher_count",
+        "grade1_students", "grade2_students", "grade3_students",
+        "budget_revenue", "budget_expense",
+        "meal_cost_per_student", "graduation_rate",
+        "bullying_cases", "bullying_discipline",
+        "fc_changing_room", "fc_shower", "fc_health_room",
+        "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room",
+        "kess_student_count", "kess_teacher_total",
+    ]
+    for c in cols:
         if c in df.columns:
-            missing = df[c].isna().sum()
-            print(f"  {c}: {missing}/{len(df)} ({missing/len(df)*100:.0f}%)")
+            n = df[c].notna().sum()
+            print(f"  {c}: {n}/{len(df)} ({n/len(df)*100:.0f}%)")
+        else:
+            print(f"  {c}: ✗ 컬럼 없음")
     print(f"\n샘플 (2025년 상위 5교):")
-    cols = ["school_name", "district", "year", "student_count", "class_count",
-            "teacher_count", "students_per_class", "bullying_cases", "bullying_victims", "bullying_protection"]
-    cols = [c for c in cols if c in df.columns]
-    print(df[df["year"] == 2025][cols].head(5).to_string(index=False))
+    sample_cols = ["school_name", "district", "school_type", "year",
+                   "student_count", "class_count", "teacher_count",
+                   "students_per_class", "bullying_cases",
+                   "bullying_discipline", "graduation_rate"]
+    sample_cols = [c for c in sample_cols if c in df.columns]
+    print(df[df["year"] == 2025][sample_cols].head(5).to_string(index=False))

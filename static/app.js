@@ -16,18 +16,28 @@ let chatContext = 'national';
 // ── 사용자 노출 폴백 문구 — 서버와 톤 통일 ──
 const FALLBACK_AI_TEXT = 'AI 보조 해석을 불러오지 못했습니다. 원천 데이터와 검토 신호를 기준으로 확인해 주세요.';
 
-// ── 검토 우선도 지수 임계치 (라벨용) ──
-const INDEX_THRESHOLD = { PRIORITY: 16, NORMAL: 11 };
+// ── 종합 점수 라벨 임계 (0~100, v4 점수체계) ──
+// 75~ critical · 50~ major · 25~ minor · 0~ warning
+const INDEX_THRESHOLD = { CRITICAL: 75, MAJOR: 50, MINOR: 25 };
 function indexLabel(score) {
   const s = Number(score) || 0;
-  if (s >= INDEX_THRESHOLD.PRIORITY) return '우선 검토';
-  if (s >= INDEX_THRESHOLD.NORMAL) return '일반 검토';
-  return '참고';
+  if (s >= INDEX_THRESHOLD.CRITICAL) return '즉시 검토';
+  if (s >= INDEX_THRESHOLD.MAJOR)    return '우선 검토 대상';
+  if (s >= INDEX_THRESHOLD.MINOR)    return '주간 리포트';
+  return '전체 목록';
+}
+function indexBin(score) {
+  const s = Number(score) || 0;
+  if (s >= INDEX_THRESHOLD.CRITICAL) return 'critical';
+  if (s >= INDEX_THRESHOLD.MAJOR)    return 'major';
+  if (s >= INDEX_THRESHOLD.MINOR)    return 'minor';
+  return 'warning';
 }
 function indexCls(score) {
-  const s = Number(score) || 0;
-  if (s >= INDEX_THRESHOLD.PRIORITY) return 'grade-priority';
-  if (s >= INDEX_THRESHOLD.NORMAL) return 'grade-normal';
+  // 기존 CSS(grade-priority/normal/ref) 재활용 — critical·major는 강조, minor·warning은 약화.
+  const bin = indexBin(score);
+  if (bin === 'critical' || bin === 'major') return 'grade-priority';
+  if (bin === 'minor') return 'grade-normal';
   return 'grade-ref';
 }
 function fmtIndex(score) {
@@ -37,7 +47,7 @@ function fmtIndex(score) {
 
 // ── 활성 필터 상태 ──
 const activeFilters = {
-  bin: new Set(),        // 지수 구간: 'priority' / 'normal' / 'ref'
+  bin: new Set(),        // 점수 구간: 'critical' / 'major' / 'minor' / 'warning'
   category: new Set(),   // 카테고리 코드 (대분류)
   rule: new Set(),       // 룰 ID (세부)
   district: new Set(),   // 구 이름
@@ -294,13 +304,14 @@ function renderFilterPanel(dash) {
       <button class="filter-reset" id="filter-reset">전체 초기화</button>
     </div>
 
-    <!-- 검토 우선도 구간 -->
+    <!-- 검토 우선도 구간 (v4 점수체계: 0~100) -->
     <div class="filter-section">
       <div class="filter-section-h">검토 우선도</div>
       <div class="fpc">
-        <span class="fp-chip" data-filter="bin" data-val="priority">우선 검토 <span class="fp-chip-cnt">(지수 16+)</span></span>
-        <span class="fp-chip" data-filter="bin" data-val="normal">일반 검토 <span class="fp-chip-cnt">(11~15)</span></span>
-        <span class="fp-chip" data-filter="bin" data-val="ref">참고 <span class="fp-chip-cnt">(0~10)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="critical">즉시 검토 <span class="fp-chip-cnt">(75+)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="major">우선 검토 대상 <span class="fp-chip-cnt">(50~75)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="minor">주간 리포트 <span class="fp-chip-cnt">(25~50)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="warning">전체 목록 <span class="fp-chip-cnt">(0~25)</span></span>
       </div>
     </div>
 
@@ -461,9 +472,7 @@ function applyFilterAndRender() {
   const filtered = allSchools.filter(s => {
     if (q && !s.school_name.toLowerCase().includes(q)) return false;
     if (f.bin.size > 0) {
-      const sc = Number(s.score) || 0;
-      const bin = sc >= INDEX_THRESHOLD.PRIORITY ? 'priority' : sc >= INDEX_THRESHOLD.NORMAL ? 'normal' : 'ref';
-      if (!f.bin.has(bin)) return false;
+      if (!f.bin.has(indexBin(s.score))) return false;
     }
     if (f.district.size > 0 && !f.district.has(s.district)) return false;
     if (f.type.size > 0 && !f.type.has(s.school_type)) return false;
@@ -493,7 +502,8 @@ function renderActiveChips() {
   const f = activeFilters;
   const chips = [];
   if (f.bin.size) {
-    f.bin.forEach(v => chips.push({ f: 'bin', v, label: v === 'priority' ? '우선 검토' : v === 'normal' ? '일반 검토' : '참고' }));
+    const BIN_LABEL = { critical: '즉시 검토', major: '우선 검토 대상', minor: '주간 리포트', warning: '전체 목록' };
+    f.bin.forEach(v => chips.push({ f: 'bin', v, label: BIN_LABEL[v] || v }));
   }
   f.district.forEach(v => chips.push({ f: 'district', v, label: v }));
   f.type.forEach(v => chips.push({ f: 'type', v, label: v }));
@@ -518,14 +528,13 @@ function removeFilter(f, v) {
   applyFilterAndRender();
 }
 
-// ===== DISTRIBUTION (우측 패널) =====
+// ===== DISTRIBUTION (우측 패널) — v4 점수체계 4단계 =====
 function renderDistBars(dist) {
   const order = [
-    ['21-25', '우선 21+', 'priority'],
-    ['16-20', '우선 16~20', 'priority'],
-    ['11-15', '일반 11~15', 'normal'],
-    ['6-10', '참고 6~10', 'normal'],
-    ['0', '0~5', 'normal'],
+    ['critical', '즉시 검토 (75+)',       'priority'],
+    ['major',    '우선 검토 대상 (50~75)', 'priority'],
+    ['minor',    '주간 리포트 (25~50)',   'normal'],
+    ['warning',  '전체 목록 (0~25)',      'normal'],
   ];
   const mx = Math.max(...Object.values(dist), 1);
   document.getElementById('dist-bars').innerHTML = order.map(([k, label, cls]) => {
@@ -1318,7 +1327,8 @@ function renderSelfReport(rep) {
     return;
   }
   const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 42;
-  const idxCls = indexCls(rep.score), idxLb = rep.grade_label || indexLabel(rep.score);
+  // v4 점수체계 라벨로 강제 — 서버 grade_label은 구 임계 잔존 가능성 있음(임계 단일 출처는 indexLabel).
+  const idxCls = indexCls(rep.score), idxLb = indexLabel(rep.score);
 
   // Top 신호 행
   const topRows = (rep.top_signals || []).map((s, i) => `
