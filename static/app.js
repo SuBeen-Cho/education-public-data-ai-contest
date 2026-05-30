@@ -16,15 +16,26 @@ let chatContext = 'national';
 // ── 사용자 노출 폴백 문구 — 서버와 톤 통일 ──
 const FALLBACK_AI_TEXT = 'AI 보조 해석을 불러오지 못했습니다. 원천 데이터와 검토 신호를 기준으로 확인해 주세요.';
 
+// ── 긴 학교명 줄바꿈 (단어 단위) ──
+function wrapSchoolName(name) {
+  if (!name || name.length <= 12) return name;
+  return name
+    .replace(/대학교/g, '대학교\u200B')
+    .replace(/사범대학/g, '사범대학\u200B')
+    .replace(/부속/g, '부속\u200B')
+    .replace(/부설/g, '부설\u200B')
+    .replace(/고등학교/g, '\u200B고등학교');
+}
+
 // ── 종합 점수 라벨 임계 (0~100, v4 점수체계) ──
-// 75~ critical · 50~ major · 25~ minor · 0~ warning
-const INDEX_THRESHOLD = { CRITICAL: 75, MAJOR: 50, MINOR: 25 };
+// 70~ critical · 50~ major · 30~ minor · 0~ warning
+const INDEX_THRESHOLD = { CRITICAL: 70, MAJOR: 50, MINOR: 30 };
 function indexLabel(score) {
   const s = Number(score) || 0;
   if (s >= INDEX_THRESHOLD.CRITICAL) return '즉시 검토';
   if (s >= INDEX_THRESHOLD.MAJOR)    return '우선 검토 대상';
-  if (s >= INDEX_THRESHOLD.MINOR)    return '주간 리포트';
-  return '전체 목록';
+  if (s >= INDEX_THRESHOLD.MINOR)    return '일반 검토';
+  return '참고';
 }
 function indexBin(score) {
   const s = Number(score) || 0;
@@ -106,6 +117,7 @@ function bindNav() {
   const ns = document.getElementById('nav-school');
   ns.onclick = (e) => { e.preventDefault(); if (currentSchoolCode) showView('school'); };
   document.querySelector('[data-view="advanced"]').onclick = (e) => { e.preventDefault(); showView('advanced'); initAdvanced(); };
+  document.querySelector('[data-view="rulelab"]').onclick = (e) => { e.preventDefault(); showView('rulelab'); };
   document.getElementById('back-to-national').onclick = (e) => { e.preventDefault(); showView('national'); };
   document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
   document.getElementById('nav-search').addEventListener('input', () => { applyFilterAndRender(); });
@@ -308,10 +320,10 @@ function renderFilterPanel(dash) {
     <div class="filter-section">
       <div class="filter-section-h">검토 우선도</div>
       <div class="fpc">
-        <span class="fp-chip" data-filter="bin" data-val="critical">즉시 검토 <span class="fp-chip-cnt">(75+)</span></span>
-        <span class="fp-chip" data-filter="bin" data-val="major">우선 검토 대상 <span class="fp-chip-cnt">(50~75)</span></span>
-        <span class="fp-chip" data-filter="bin" data-val="minor">주간 리포트 <span class="fp-chip-cnt">(25~50)</span></span>
-        <span class="fp-chip" data-filter="bin" data-val="warning">전체 목록 <span class="fp-chip-cnt">(0~25)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="critical">즉시 검토 <span class="fp-chip-cnt">(70+)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="major">우선 검토 대상 <span class="fp-chip-cnt">(50~70)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="minor">일반 검토 <span class="fp-chip-cnt">(30~50)</span></span>
+        <span class="fp-chip" data-filter="bin" data-val="warning">참고 <span class="fp-chip-cnt">(0~30)</span></span>
       </div>
     </div>
 
@@ -502,7 +514,7 @@ function renderActiveChips() {
   const f = activeFilters;
   const chips = [];
   if (f.bin.size) {
-    const BIN_LABEL = { critical: '즉시 검토', major: '우선 검토 대상', minor: '주간 리포트', warning: '전체 목록' };
+    const BIN_LABEL = { critical: '즉시 검토', major: '우선 검토 대상', minor: '일반 검토', warning: '참고' };
     f.bin.forEach(v => chips.push({ f: 'bin', v, label: BIN_LABEL[v] || v }));
   }
   f.district.forEach(v => chips.push({ f: 'district', v, label: v }));
@@ -531,10 +543,10 @@ function removeFilter(f, v) {
 // ===== DISTRIBUTION (우측 패널) — v4 점수체계 4단계 =====
 function renderDistBars(dist) {
   const order = [
-    ['critical', '즉시 검토 (75+)',       'priority'],
-    ['major',    '우선 검토 대상 (50~75)', 'priority'],
-    ['minor',    '주간 리포트 (25~50)',   'normal'],
-    ['warning',  '전체 목록 (0~25)',      'normal'],
+    ['critical', '즉시 검토',    'priority'],
+    ['major',    '우선 검토',    'priority'],
+    ['minor',    '일반 검토',  'normal'],
+    ['warning',  '일반',        'normal'],
   ];
   const mx = Math.max(...Object.values(dist), 1);
   document.getElementById('dist-bars').innerHTML = order.map(([k, label, cls]) => {
@@ -591,7 +603,7 @@ function rowHtml(s) {
     `<span class="cat-mini" title="${c.code}">${c.ko}</span>`).join('');
   return `<tr data-code="${s.school_code}">
     <td class="rank-cell">${s.rank}</td>
-    <td class="school-cell">${s.school_name}</td>
+    <td class="school-cell">${wrapSchoolName(s.school_name)}</td>
     <td class="dist-cell">${s.district || ''} · ${s.school_type || ''}</td>
     <td class="cats-cell">${cats}</td>
     <td class="score-cell" style="text-align:right">
@@ -1984,3 +1996,105 @@ function advResolve() {
 }
 
 function advNotify(msg) { showNotify(msg); }
+
+// ===== RULE LAB (샌드박스 룰 생성기 — 3단 레이아웃) =====
+function setRuleLabQuery(text) {
+  document.getElementById('rulelab-input').value = text;
+  sendRuleLabMsg();
+}
+
+async function sendRuleLabMsg() {
+  const input = document.getElementById('rulelab-input');
+  const query = input.value.trim();
+  if (!query) return;
+
+  // 로딩 상태
+  document.getElementById('rulelab-empty').style.display = 'none';
+  document.getElementById('rulelab-dashboard').style.display = 'block';
+  document.getElementById('rl-interpret').innerHTML = '<span style="color:var(--text-muted)">AI가 조건을 해석하고 있습니다...</span>';
+  document.getElementById('rl-summary').innerHTML = '';
+  document.getElementById('rl-condition').innerHTML = '';
+  document.getElementById('rl-overlap').innerHTML = '';
+  document.getElementById('rl-code').textContent = '';
+  document.getElementById('rl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">분석 중...</div>';
+  document.getElementById('rl-indicators').innerHTML = '';
+  document.getElementById('rl-columns').innerHTML = '';
+  document.getElementById('rl-count').textContent = '';
+  document.getElementById('rl-stats').innerHTML = '';
+
+  try {
+    const res = await fetch('/api/rulelab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById('rl-interpret').innerHTML = `<span style="color:#991B1B">${data.error}</span>`;
+      return;
+    }
+
+    // 좌측: 해석
+    document.getElementById('rl-interpret').innerHTML = data.interpretation || '해석 없음';
+
+    // 좌측: 사용 지표
+    const cols = data.columns_used || [];
+    document.getElementById('rl-indicators').innerHTML = cols.map(c =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;color:var(--navy);font-weight:600"><input type="checkbox" checked disabled style="accent-color:var(--cobalt)"> ${c}</div>`
+    ).join('');
+
+    // 좌측: 참고 컬럼
+    document.getElementById('rl-columns').innerHTML = cols.map(c =>
+      `<span style="font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg);border:1px solid var(--border-light);color:var(--text-sub)">${c}</span>`
+    ).join('');
+
+    // 가운데: 요약 카드
+    const totalCount = data.results ? data.results.length : 0;
+    document.getElementById('rl-summary').innerHTML = `
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 16px;text-align:center;border-top:3px solid var(--cobalt)">
+        <div style="font-size:32px;font-weight:900;color:var(--cobalt)">${totalCount}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-sub);margin-top:6px">탐지 학교</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 16px;text-align:center;border-top:3px solid #6366F1">
+        <div style="font-size:32px;font-weight:900;color:#6366F1">${cols.length}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-sub);margin-top:6px">사용 지표</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:18px 16px;text-align:center;border-top:3px solid #059669">
+        <div style="font-size:32px;font-weight:900;color:#059669">210</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-sub);margin-top:6px">분석 학교</div>
+      </div>`;
+
+    // 가운데: 조건 시각화
+    document.getElementById('rl-condition').innerHTML = `
+      <div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:14px;display:flex;align-items:center;gap:8px">
+        <span style="background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:3px 10px;border-radius:10px;font-size:9.5px;font-weight:800">AI</span> 생성된 검증 조건
+      </div>
+      <div style="background:var(--cobalt-bg);border-radius:6px;padding:14px 18px;font-size:13px;font-weight:700;color:var(--cobalt);line-height:1.6">${query}</div>`;
+
+    // 가운데: 코드
+    document.getElementById('rl-code').textContent = data.code || '# 코드 없음';
+
+    // 우측: 탐지 결과
+    document.getElementById('rl-count').textContent = `${totalCount}교`;
+    if (data.results && data.results.length > 0) {
+      document.getElementById('rl-results').innerHTML = data.results.map((r, i) =>
+        `<div style="padding:10px 16px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:10px">
+          <span style="font-size:12px;font-weight:800;color:var(--cobalt);min-width:24px">${i+1}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:var(--text)">${r.school || ''}</div>
+            <div style="font-size:11px;color:var(--text-sub)">${r.year || ''} · ${r.detail || ''}</div>
+          </div>
+        </div>`
+      ).join('');
+    } else {
+      document.getElementById('rl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">조건에 해당하는 학교가 없습니다.</div>';
+    }
+
+    // 우측: 통계
+    document.getElementById('rl-stats').innerHTML = data.message || '';
+
+  } catch (e) {
+    document.getElementById('rl-interpret').innerHTML = `<span style="color:#991B1B">네트워크 오류: ${e.message}</span>`;
+  }
+}

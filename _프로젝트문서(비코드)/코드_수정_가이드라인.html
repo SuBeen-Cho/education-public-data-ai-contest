@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>코드 수정 가이드라인 -- rule_engine.py vs 룰셋 v3 정의서</title>
+  <style>
+/* ===== FONT ===== */
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-4Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-6SemiBold.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-7Bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@latest/Paperlogy-3Light.woff2') format('woff2');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+
+/* ===== TOKENS ===== */
+:root {
+  --color-bg:            #FFFFFF;
+  --color-bg-subtle:     #F6F8FA;
+  --color-bg-card:       #F9FAFB;
+  --color-border:        #DDE3E9;
+  --color-border-light:  #E9EEF2;
+
+  --color-text:          #1A1A1A;
+  --color-text-secondary:#6B6B6B;
+  --color-text-tertiary: #9B9B9B;
+
+  --color-accent:        #3B6BCC;
+  --color-accent-light:  #EBF0FA;
+  --color-accent-hover:  #2F5AB3;
+  --color-accent-text:   #2A4E99;
+
+  --color-highlight:     rgba(59, 107, 204, 0.13);
+  --color-info:          #5B8BA0;
+  --color-danger:        #C45C5C;
+  --color-danger-light:  #FDF0F0;
+  --color-warning:       #D4A843;
+  --color-warning-light: #FDF8EC;
+  --color-success:       #4CAF50;
+  --color-success-light: #E8F5E9;
+
+  --font-primary: 'Paperlogy', 'Pretendard', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', 'D2Coding', 'Consolas', monospace;
+
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:24px; --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px;
+}
+
+/* ===== RESET ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;scroll-behavior:smooth;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{font-family:var(--font-primary);font-weight:400;color:var(--color-text);background:var(--color-bg);line-height:1.7;letter-spacing:-0.01em}
+
+/* ===== HIGHLIGHT ===== */
+.hl{background:linear-gradient(transparent 55%,var(--color-highlight) 55%);padding:0 2px}
+
+/* ===== HERO ===== */
+.hero{max-width:760px;margin:0 auto;padding:var(--space-9) var(--space-5) var(--space-6);text-align:center}
+.hero .display{font-size:36px;font-weight:700;line-height:1.3;letter-spacing:-0.02em;color:var(--color-text);margin-bottom:var(--space-3)}
+.hero .subtitle{font-size:20px;font-weight:300;color:var(--color-text-secondary);margin-bottom:var(--space-5)}
+.hero .meta{font-size:14px;color:var(--color-text-tertiary);line-height:1.6}
+
+/* ===== CONTENT ===== */
+.content{max-width:760px;margin:0 auto;padding:0 var(--space-5) var(--space-9)}
+
+/* ===== SECTION ===== */
+.section{padding-top:var(--space-7);margin-bottom:var(--space-7)}
+.section-badge{display:inline-flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2)}
+.section-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.section-dot.critical{background:var(--color-danger)}
+.section-dot.warning{background:var(--color-warning)}
+.section-dot.ok{background:var(--color-success)}
+.section-dot.info{background:var(--color-accent)}
+.section-label{font-size:13px;font-weight:600;letter-spacing:0.02em}
+.section-label.critical{color:var(--color-danger)}
+.section-label.warning{color:var(--color-warning)}
+.section-label.ok{color:var(--color-success)}
+.section-label.info{color:var(--color-accent-text)}
+.section-title{font-size:28px;font-weight:700;line-height:1.35;letter-spacing:-0.02em;color:var(--color-text);margin-bottom:var(--space-5)}
+
+/* ===== SUBSECTION ===== */
+.subsection{margin-bottom:var(--space-7)}
+.subsection h3{font-size:22px;font-weight:600;line-height:1.4;color:var(--color-text);margin-bottom:var(--space-4);padding-top:var(--space-5)}
+.subsection h4{font-size:18px;font-weight:600;line-height:1.45;color:var(--color-text);margin-top:var(--space-5);margin-bottom:var(--space-3)}
+.subsection p{font-size:16px;line-height:1.7;margin-bottom:var(--space-4)}
+.subsection p:last-child{margin-bottom:0}
+.subsection ul,.subsection ol{padding-left:var(--space-5);margin-bottom:var(--space-4)}
+.subsection li{font-size:16px;line-height:1.7;margin-bottom:var(--space-2)}
+
+/* ===== TABLE ===== */
+.table-wrap{overflow-x:auto;margin-bottom:var(--space-5);border-radius:8px;border:1px solid var(--color-border-light)}
+.data-table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.6;table-layout:auto}
+.data-table thead th{background:var(--color-bg-subtle);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--color-border);white-space:nowrap;color:var(--color-text);vertical-align:middle}
+.data-table tbody td{padding:10px 14px;border-bottom:1px solid var(--color-border-light);vertical-align:middle;color:var(--color-text);word-break:keep-all}
+.data-table tbody tr:last-child td{border-bottom:none}
+.data-table tbody tr:nth-child(even){background:var(--color-bg-card)}
+.data-table .cell-highlight{font-weight:600;color:var(--color-accent-text)}
+.data-table .cell-bold{font-weight:600}
+.data-table .cell-danger{color:var(--color-danger);font-weight:600}
+.data-table .cell-warning{color:var(--color-warning);font-weight:600}
+.data-table .cell-ok{color:var(--color-success);font-weight:600}
+
+/* ===== KEY MESSAGE ===== */
+.key-message{border-left:3px solid;border-radius:0 6px 6px 0;padding:var(--space-5);margin-bottom:var(--space-6)}
+.key-message.critical{background:var(--color-danger-light);border-color:var(--color-danger)}
+.key-message.warning{background:var(--color-warning-light);border-color:var(--color-warning)}
+.key-message.ok{background:var(--color-success-light);border-color:var(--color-success)}
+.key-message.info{background:var(--color-accent-light);border-color:var(--color-accent)}
+.key-message-label{display:block;font-size:13px;font-weight:600;margin-bottom:var(--space-2)}
+.key-message-label.critical{color:var(--color-danger)}
+.key-message-label.warning{color:#8B7028}
+.key-message-label.info{color:var(--color-accent-text)}
+.key-message p{font-size:15px;line-height:1.7;color:var(--color-text);margin:0}
+
+/* ===== CODE BLOCK ===== */
+.code-block{background:var(--color-bg-subtle);border:1px solid var(--color-border-light);border-radius:6px;padding:20px 24px;font-family:var(--font-mono);font-size:13px;line-height:1.6;overflow-x:auto;margin:var(--space-4) 0 var(--space-5);white-space:pre;color:var(--color-text)}
+code{font-family:var(--font-mono);font-size:0.88em;background:var(--color-bg-subtle);border:1px solid var(--color-border-light);border-radius:3px;padding:2px 6px}
+
+/* ===== DETAIL CARD ===== */
+.detail-card{background:var(--color-bg-card);border:1px solid var(--color-border-light);border-radius:8px;padding:var(--space-5);margin:var(--space-5) 0}
+.detail-card h5{font-size:15px;font-weight:600;margin-bottom:var(--space-3);color:var(--color-text)}
+.detail-card p{font-size:15px;line-height:1.7;margin-bottom:var(--space-3)}
+.detail-card p:last-child{margin-bottom:0}
+.detail-card .tag{display:inline-block;font-size:12px;font-weight:600;border-radius:4px;padding:2px 8px;margin-bottom:var(--space-2)}
+.tag-def{background:var(--color-accent-light);color:var(--color-accent-text);border:1px solid var(--color-accent)}
+.tag-code{background:var(--color-danger-light);color:var(--color-danger);border:1px solid var(--color-danger)}
+.tag-fix{background:var(--color-success-light);color:var(--color-success);border:1px solid var(--color-success)}
+
+/* ===== BLOCKQUOTE ===== */
+blockquote{border-left:2px solid var(--color-border);padding:var(--space-1) 0 var(--space-1) var(--space-5);margin:var(--space-5) 0}
+blockquote p{font-size:15px;line-height:1.7;color:var(--color-text-secondary);margin-bottom:var(--space-2)}
+
+/* ===== STEP SUMMARY ===== */
+.step-summary{background:var(--color-bg-subtle);border:1px solid var(--color-border-light);border-radius:8px;padding:var(--space-6);margin-top:var(--space-6)}
+.step-summary h3{font-size:18px;font-weight:600;margin-bottom:var(--space-4);padding-top:0}
+
+/* ===== DIVIDER ===== */
+.divider{border:none;border-top:1px solid var(--color-border-light);margin:var(--space-8) 0}
+
+/* ===== SOURCES FOOTER ===== */
+.sources{max-width:760px;margin:0 auto;padding:var(--space-7) var(--space-5) var(--space-9);border-top:1px solid var(--color-border)}
+.sources details{font-size:14px}
+.sources summary{font-size:16px;font-weight:600;color:var(--color-text);cursor:pointer;padding:var(--space-3) 0;user-select:none}
+.sources summary:hover{color:var(--color-accent-hover)}
+
+/* ===== STAT ROW ===== */
+.stat-row{display:flex;gap:var(--space-4);margin:var(--space-5) 0;flex-wrap:wrap}
+.stat-card{flex:1;min-width:140px;background:var(--color-bg-card);border:1px solid var(--color-border-light);border-radius:8px;padding:var(--space-4);text-align:center}
+.stat-card .stat-num{font-size:28px;font-weight:700;line-height:1.3}
+.stat-card .stat-label{font-size:13px;color:var(--color-text-secondary);margin-top:var(--space-1)}
+.stat-num.danger{color:var(--color-danger)}
+.stat-num.warning{color:var(--color-warning)}
+.stat-num.ok{color:var(--color-success)}
+.stat-num.info{color:var(--color-accent)}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:1023px){
+  .hero .display{font-size:32px}
+  .section-title{font-size:24px}
+}
+@media(max-width:767px){
+  .hero{padding:var(--space-7) var(--space-4) var(--space-6)}
+  .hero .display{font-size:28px}
+  .hero .subtitle{font-size:18px}
+  .content{padding:0 var(--space-4) var(--space-7)}
+  .section-title{font-size:22px}
+  .subsection h3{font-size:19px}
+  .subsection h4{font-size:17px}
+  body{font-size:15px}
+  .stat-row{flex-direction:column}
+  .stat-card{min-width:auto}
+}
+
+/* ===== PRINT ===== */
+@media print{
+  body{font-size:11pt;line-height:1.6}
+  .section{page-break-before:always}
+  .key-message{border-left-width:2px}
+  a{text-decoration:none;color:var(--color-text)}
+}
+
+strong{font-weight:600}
+  </style>
+</head>
+<body>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <h1 class="display">코드 수정 가이드라인</h1>
+  <p class="subtitle">rule_engine.py와 룰셋 v3 정의서의 비교 검증</p>
+  <p class="meta">
+    비교 대상: <code>rule_engine.py</code> (구현 코드) vs <code>[01] 룰셋_v3_정의서.md</code> (명세서)<br>
+    검증일: 2026-05-29 &middot; 검증 범위: 구현된 12개 룰 전체 + 미구현 13개 룰 확인
+  </p>
+</section>
+
+<!-- ===== STATS ===== -->
+<div class="content">
+
+<div class="stat-row">
+  <div class="stat-card">
+    <div class="stat-num info">25</div>
+    <div class="stat-label">전체 룰 수</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num ok">12</div>
+    <div class="stat-label">구현됨</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num danger">3</div>
+    <div class="stat-label">불일치</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num warning">4</div>
+    <div class="stat-label">부분 불일치</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 1. 요약 표 -->
+<!-- ============================================================ -->
+<article class="section" id="summary">
+  <div class="section-badge">
+    <span class="section-dot info"></span>
+    <span class="section-label info">요약</span>
+  </div>
+  <h2 class="section-title">전체 25개 룰 일치 현황</h2>
+
+  <p>구현된 12개 룰 중에서, 정의서와 코드가 완전히 일치하는 것은 <strong>5개</strong>뿐이다. 나머지 7개는 크고 작은 차이가 있다.</p>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>룰 ID</th>
+          <th>이름</th>
+          <th>구현</th>
+          <th>일치</th>
+          <th>문제 요약</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- C1 -->
+        <tr>
+          <td class="cell-bold">C1-1</td>
+          <td>학생↔학급 역방향 변동</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>방향 반대 + 2학급 이상 조건 정확히 일치</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-2</td>
+          <td>학생↔학급 완만 역방향 변동</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현 (1학급 완만 변동)</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-3</td>
+          <td>학생↔교원 불균형</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-danger">불일치</td>
+          <td>학생수 임계 3% vs 정의서 5%, 교원 "5명 이상" 절대조건 누락, 강사 미제외</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-4</td>
+          <td>학급↔교원 불균형</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-5</td>
+          <td>학생↔보직교사 불균형</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-7</td>
+          <td>교원1인당학생수 급변</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-8</td>
+          <td>학급당학생수 급변</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>1.5명/학급 임계값 정확히 일치</td>
+        </tr>
+        <!-- C3 -->
+        <tr>
+          <td class="cell-bold">C3-3A</td>
+          <td>미조치 피해 (강력)</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-warning">부분</td>
+          <td>선도조치 >0 조건 누락, 3학기 반복 승격 미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C3-3B</td>
+          <td>미조치 피해 (참고)</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-warning">부분</td>
+          <td>위와 동일 (등급A/B 공유 함수)</td>
+        </tr>
+        <!-- B1 -->
+        <tr>
+          <td class="cell-bold">B1-1</td>
+          <td>학생 교원 급변동</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-danger">불일치</td>
+          <td>"직전 2년 평균 대비 3배" 조건 누락, 학급수 미포함</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-2</td>
+          <td>학생 교원 급변동 (단년)</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현 (B1-1 코드가 사실상 B1-2 로직)</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-3</td>
+          <td>학교회계 변동</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현 (학교회계 데이터 미로드)</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-4</td>
+          <td>학교회계 강한 변동</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-5</td>
+          <td>진학률 급변동</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-warning">부분</td>
+          <td>별 등급 불일치: 코드 일괄 ★★★ vs 정의서 명세 20%p 이상이면 ★★★</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-6</td>
+          <td>학폭 심의 급증</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>0~1건 -> 5건 이상 조건 정확히 일치</td>
+        </tr>
+        <!-- D2 -->
+        <tr>
+          <td class="cell-bold">D2-1</td>
+          <td>유사학교 대비 상하위 10%</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">D2-2</td>
+          <td>유사학교 대비 극단값</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-warning">부분</td>
+          <td>"중앙값 대비 50% 이상" 조건 누락 (IQR만 구현)</td>
+        </tr>
+        <!-- C2 -->
+        <tr>
+          <td class="cell-bold">C2-3</td>
+          <td>급식비 변동</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>학생수 5% + 급식비 10%/30% 조건 정확히 일치</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C2-3+</td>
+          <td>급식비 강한 변동</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>30% 이상 조건 포함하여 정확히 일치</td>
+        </tr>
+        <!-- E2 -->
+        <tr>
+          <td class="cell-bold">E2-2</td>
+          <td>3년 동일값 반복</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-warning">부분 (경미)</td>
+          <td>소규모 정수 2~5 필터 누락, 대상 컬럼 5개로 한정</td>
+        </tr>
+        <!-- E1 -->
+        <tr>
+          <td class="cell-bold">E1-1</td>
+          <td>3년 연속 미입력</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">E1-2</td>
+          <td>단독 미입력</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">E1-3</td>
+          <td>공시 의무 항목 미제출</td>
+          <td>X</td>
+          <td>-</td>
+          <td>미구현</td>
+        </tr>
+        <!-- C5 -->
+        <tr>
+          <td class="cell-bold">C5-1</td>
+          <td>진급 시 학생 이탈</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-danger">불일치</td>
+          <td>학년별 학생 진급이 아닌 전체 학생수 YoY를 사용 -- 완전히 다른 것을 측정</td>
+        </tr>
+        <!-- F1' -->
+        <tr>
+          <td class="cell-bold">F1'-1</td>
+          <td>교원수 교차 불일치</td>
+          <td class="cell-ok">O</td>
+          <td class="cell-ok">일치</td>
+          <td>강사 보정 후 3명 이상 차이 조건 정확히 일치</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="key-message info">
+    <span class="key-message-label info">요약 정리</span>
+    <p>
+      <strong>구현 12개 룰 중</strong>: 완전 일치 5개, 부분 불일치 4개, 불일치 3개<br>
+      <strong>미구현</strong>: 11개 (보류 D2-3, E2-1 제외)
+    </p>
+  </div>
+</article>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<!-- 2. 불일치 상세 -->
+<!-- ============================================================ -->
+<article class="section" id="critical">
+  <div class="section-badge">
+    <span class="section-dot critical"></span>
+    <span class="section-label critical">불일치</span>
+  </div>
+  <h2 class="section-title">코드가 정의서와 완전히 다른 3건</h2>
+
+  <p>아래 3건은 코드가 정의서의 의도와 다른 것을 측정하거나, 핵심 조건을 빠뜨린 경우이다. 탐지 결과 자체가 달라질 수 있으므로 반드시 수정해야 한다.</p>
+
+  <!-- ===== C5-1 ===== -->
+  <div class="subsection" id="c5-1">
+    <h3>1. C5-1: 진급 시 학생 이탈</h3>
+
+    <div class="key-message critical">
+      <span class="key-message-label critical">핵심 문제</span>
+      <p>정의서는 "1학년에서 2학년으로 진급할 때 몇 명이 빠지는가"를 보라고 했다. 그런데 코드는 "학교 전체 학생수가 전년 대비 몇 퍼센트 변했는가"를 보고 있다. 완전히 다른 것을 측정하고 있다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 원문</span></h5>
+      <p>
+        "t년 1학년에서 t+1년 2학년으로의 학년 진급 인원 변동이 <strong>-7%~+3%</strong> 범위 밖"<br>
+        사용 컬럼: <code>학사_학생_성별학생수__1학년(남)</code> + <code>1학년(여)</code> 합산
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서가 의도한 것 (쉬운 말로)</span></h5>
+      <p>
+        2024년 1학년이 272명이었는데, 그 학생들이 2025년 2학년이 되면서 241명이 됐다면, 31명(-11.4%)이 빠진 것이다.
+        보통 전학이나 자퇴로 1~3%만 빠지는데, 11%나 빠졌으니 뭔가 특이한 일이 있었을 수 있다.
+        이런 패턴을 잡으라는 것이다.
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드가 실제로 하는 것</span></h5>
+      <p>
+        <code>student_count_yoy</code> (전체 학생수 전년 대비 변동률)를 가져와서 -7% 미만이거나 +3% 초과이면 탐지한다.
+        이것은 "학교 전체 학생이 얼마나 변했는가"이지, "1학년이 2학년 되면서 얼마나 빠졌는가"가 아니다.
+      </p>
+      <div class="code-block"># rule_engine.py 214~223행 (_check_c5_1)
+def _check_c5_1(self):
+    if "student_count_yoy" not in self.df.columns:
+        return
+    for _, row in self.df.dropna(subset=["student_count_yoy"]).iterrows():
+        chg = row["student_count_yoy"]    # &lt;-- 전체 학생수 YoY
+        if chg &lt; -7 or chg > 3:           # &lt;-- 정의서와 같은 임계값이지만
+            self._add(row, "C5-1", ...)    #     측정 대상이 완전히 다름</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">문제</span></h5>
+      <p>
+        <strong>측정 대상 자체가 다르다.</strong> 전체 학생수 YoY가 -7%~+3% 안이더라도 학년별로는 -11%가 빠질 수 있고, 반대로 전체 학생수가 -8% 이더라도 학년 진급은 정상(-2%)일 수 있다.
+      </p>
+      <p>
+        현재 코드의 C5-1은 사실상 B1-1(학생수 급변동)과 중복된다. 정의서가 의도한 "학년 진급 추적"은 전혀 구현되어 있지 않다.
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <p>data_loader.py에서 학년별 학생수 컬럼을 로드해야 한다. 현재 <code>SCHOOL_COLS</code>에 학년별 성별학생수 컬럼이 없으므로 추가가 필요하다.</p>
+
+      <p><strong>1단계: data_loader.py에 컬럼 추가</strong></p>
+      <div class="code-block"># data_loader.py SCHOOL_COLS에 추가
+SCHOOL_COLS = {
+    ...
+    # 학년별 학생수 (C5-1용)
+    "grade1_male": "학사_학생_성별학생수__1학년(남)",
+    "grade1_female": "학사_학생_성별학생수__1학년(여)",
+    "grade2_male": "학사_학생_성별학생수__2학년(남)",
+    "grade2_female": "학사_학생_성별학생수__2학년(여)",
+    "grade3_male": "학사_학생_성별학생수__3학년(남)",
+    "grade3_female": "학사_학생_성별학생수__3학년(여)",
+}
+
+# load_school_alimi() 함수에서
+result["grade1_students"] = (
+    df_raw[SCHOOL_COLS["grade1_male"]].apply(safe_numeric).fillna(0) +
+    df_raw[SCHOOL_COLS["grade1_female"]].apply(safe_numeric).fillna(0)
+).astype(int)
+result["grade2_students"] = (
+    df_raw[SCHOOL_COLS["grade2_male"]].apply(safe_numeric).fillna(0) +
+    df_raw[SCHOOL_COLS["grade2_female"]].apply(safe_numeric).fillna(0)
+).astype(int)</div>
+
+      <p><strong>2단계: rule_engine.py 수정</strong></p>
+      <div class="code-block"># rule_engine.py: _check_c5_1 전체 교체
+def _check_c5_1(self):
+    """C5-1: t년 1학년 -> t+1년 2학년 학년 진급 인원 변동"""
+    if "grade1_students" not in self.df.columns:
+        return
+    df_sorted = self.df.sort_values(["school_code", "year"])
+    for school_code, group in df_sorted.groupby("school_code"):
+        if len(group) &lt; 2:
+            continue
+        for i in range(1, len(group)):
+            prev = group.iloc[i - 1]
+            curr = group.iloc[i]
+            g1_prev = prev.get("grade1_students", 0)  # t년 1학년
+            g2_curr = curr.get("grade2_students", 0)   # t+1년 2학년
+            if pd.isna(g1_prev) or pd.isna(g2_curr) or g1_prev == 0:
+                continue
+            rate = (g2_curr - g1_prev) / g1_prev * 100  # 퍼센트
+            if rate &lt; -7 or rate > 3:
+                diff = g2_curr - g1_prev
+                self._add(curr, "C5-1", "진급 시 학생 이탈", 3, "C5",
+                    f"1학년 {int(g1_prev)}명->2학년 {int(g2_curr)}명 "
+                    f"({diff:+d}명, {rate:+.1f}%)",
+                    {"g1_prev": int(g1_prev), "g2_curr": int(g2_curr),
+                     "diff": int(diff), "rate": round(rate, 1)})</div>
+    </div>
+
+    <div class="detail-card">
+      <h5>수정 후 동작</h5>
+      <p>
+        2024년 1학년 272명 -> 2025년 2학년 241명일 때, 변동률 = (241-272)/272 = -11.4%.<br>
+        -11.4%는 -7% 미만이므로 탐지된다. 정의서가 예시로 든 용화여고(-11.4%), 서울문영여고(-8.7%) 등이 정확히 잡힌다.
+      </p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ===== B1-1 ===== -->
+  <div class="subsection" id="b1-1">
+    <h3>2. B1-1: 학생 교원 급변동</h3>
+
+    <div class="key-message critical">
+      <span class="key-message-label critical">핵심 문제</span>
+      <p>정의서의 B1-1은 "10% 이상 변동 + 직전 2년 평균 대비 3배"라는 <strong>이중 조건</strong>이다. 코드는 10% 이상 변동만 체크한다. 이것은 정의서의 B1-2(단년 10% 이상)와 같은 로직이다. 즉, 코드에서 B1-1이라고 쓰여 있지만 실제로는 B1-2를 수행하고 있다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 원문</span></h5>
+      <p>
+        <strong>B1-1</strong>: "전년 10% 이상 변동이면서 <strong>직전 2년 평균 대비 변동 폭이 3배 이상</strong>"<br>
+        대상: 학생수, <strong>학급수</strong>, 교원수 (3개 항목)<br>
+        <strong>B1-2</strong>: "전년 대비 10% 이상 변동" (3년 시계열 없을 때의 단순 버전)
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서가 의도한 것 (쉬운 말로)</span></h5>
+      <p>
+        B1-1은 "갑자기 이상하게 튄 해"를 잡는 것이다. 예를 들어:
+      </p>
+      <ul>
+        <li>2023년 교원 80명, 2024년 82명(+2.5%), 2025년 93명(+13.4%) -- 이전 2년간 2명 변동이었는데 갑자기 11명 변동 = 5.5배. 10% 이상이면서 3배 이상이므로 B1-1에 해당.</li>
+        <li>반면 매년 10%씩 계속 변하고 있었다면 "갑자기 튄 것"이 아니라 추세이므로 B1-1에 해당하지 않는다.</li>
+      </ul>
+      <p>B1-2는 3년 데이터가 없을 때(2023년 데이터만 있을 때) 단순히 10% 초과만 보는 간단한 버전이다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드가 실제로 하는 것</span></h5>
+      <div class="code-block"># rule_engine.py 136~145행 (_check_b1_1)
+def _check_b1_1(self):
+    for col, name in [("student_count_yoy", "학생수"),
+                       ("teacher_count_yoy", "교원수")]:  # &lt;-- 학급수 없음!
+        if col not in self.df.columns:
+            continue
+        for _, row in self.df.dropna(subset=[col]).iterrows():
+            yoy = row[col]
+            if abs(yoy) >= 10:       # &lt;-- 단순 10% 초과만 체크
+                self._add(row, "B1-1", ...)  # "2년 평균 대비 3배" 없음</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">문제</span></h5>
+      <ol>
+        <li><strong>"2년 평균 대비 3배" 조건이 완전히 빠져 있다.</strong> 현재 코드는 매년 10% 이상 변동하면 전부 잡는다. 정의서의 의도는 "평소와 다르게 갑자기 튄 해"만 잡는 것이다.</li>
+        <li><strong>학급수(<code>class_count_yoy</code>)가 대상에서 빠져 있다.</strong> 정의서는 학생수, 학급수, 교원수 3개 항목 모두를 대상으로 한다.</li>
+        <li><strong>B1-2와 구분이 없다.</strong> 현재 B1-1 코드가 사실상 B1-2 로직이다.</li>
+      </ol>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+
+      <div class="code-block"># rule_engine.py: _check_b1_1 전체 교체
+def _check_b1_1(self):
+    """B1-1: 10% 이상 + 직전 2년 평균 대비 3배 (3년 시계열 필요)
+       B1-2: 10% 이상 (단년, 시계열 부족 시)"""
+    targets = [
+        ("student_count", "학생수"),
+        ("class_count", "학급수"),        # 학급수 추가
+        ("teacher_count", "교원수"),
+    ]
+    df_sorted = self.df.sort_values(["school_code", "year"])
+    for school_code, group in df_sorted.groupby("school_code"):
+        if len(group) &lt; 2:
+            continue
+        group = group.sort_values("year")
+        for col, name in targets:
+            if col not in group.columns:
+                continue
+            vals = group[col].values
+            years = group["year"].values
+            for i in range(1, len(vals)):
+                if pd.isna(vals[i]) or pd.isna(vals[i-1]) or vals[i-1] == 0:
+                    continue
+                yoy = (vals[i] - vals[i-1]) / vals[i-1] * 100
+                if abs(yoy) &lt; 10:
+                    continue
+
+                # 3년 시계열이 있으면 B1-1 조건 체크
+                if i >= 2 and not pd.isna(vals[i-2]):
+                    prev_diff = abs(vals[i-1] - vals[i-2])
+                    curr_diff = abs(vals[i] - vals[i-1])
+                    # 이전 변동이 0이면 비율 계산 불가 -> B1-2로 처리
+                    if prev_diff > 0:
+                        ratio = curr_diff / prev_diff
+                        if ratio >= 3.0:
+                            self._add(group.iloc[i], "B1-1",
+                                f"{name} 급변동", 2, "B1",
+                                f"{name} {yoy:+.1f}% "
+                                f"(이전변동 대비 {ratio:.1f}배)",
+                                {"field": name, "yoy": round(yoy,1),
+                                 "ratio": round(ratio,1)})
+                            continue  # B1-1로 잡힌 건은 B1-2 생략
+
+                # B1-2: 시계열 부족이거나 3배 미만
+                self._add(group.iloc[i], "B1-2",
+                    f"{name} 급변동 (단년)", 2, "B1",
+                    f"{name} 전년대비 {yoy:+.1f}%",
+                    {"field": name, "yoy": round(yoy, 1)})</div>
+    </div>
+
+    <div class="detail-card">
+      <h5>수정 후 동작</h5>
+      <p>
+        예: 교원수 80 -> 82 -> 93인 학교.<br>
+        - 2024->2025 YoY = +13.4% (10% 이상 통과)<br>
+        - 이전 변동 = |82-80| = 2, 현재 변동 = |93-82| = 11, ratio = 5.5 (3배 이상 통과)<br>
+        - B1-1로 탐지. "이전 변동 대비 5.5배"라는 맥락 정보도 함께 제공된다.
+      </p>
+      <p>
+        반면 매년 교원수가 10%씩 꾸준히 변하는 학교(70 -> 77 -> 85)는:<br>
+        - ratio = 8/7 = 1.1 (3배 미만)<br>
+        - B1-1이 아닌 B1-2(단년)로만 탐지된다.
+      </p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ===== C1-3 ===== -->
+  <div class="subsection" id="c1-3">
+    <h3>3. C1-3: 학생↔교원 불균형</h3>
+
+    <div class="key-message critical">
+      <span class="key-message-label critical">핵심 문제</span>
+      <p>임계값이 다르고(3% vs 5%), 절대값 조건이 빠져 있고(5명 이상), 교원수 기준이 다르다(강사 포함 vs 강사 제외). 세 가지가 동시에 어긋나 있다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 원문</span></h5>
+      <p>
+        "학생수 변동 <strong>5%</strong> 이내인데 교원수(<strong>강사 제외</strong>) 변동 <strong>10% 이상 또는 5명 이상</strong>"
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서가 의도한 것 (쉬운 말로)</span></h5>
+      <p>
+        학생수는 별로 안 변했는데 교원수만 확 바뀐 경우를 잡는다. 예를 들어 학생수가 2% 줄고 교원수가 15% 줄었다면, "학생은 비슷한데 선생님이 갑자기 많이 줄었다"는 뜻이다.
+      </p>
+      <p>
+        교원수는 "강사를 제외한 교원수"를 사용해야 한다. 학교알리미의 자격종별 총계에는 강사가 포함되어 있어서, 강사가 바뀌면 교원수가 바뀐 것처럼 보이기 때문이다.
+      </p>
+      <p>
+        "5명 이상"이라는 절대값 조건도 있다. 교원이 20명인 작은 학교에서 2명(10%) 바뀌는 건 정상이지만, 30명인 학교에서 6명(20%) 바뀌는 건 큰 변화다. 이를 구분하기 위해 절대값 기준도 함께 본다.
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드가 실제로 하는 것</span></h5>
+      <div class="code-block"># rule_engine.py 111~117행 (_check_c1_3)
+def _check_c1_3(self):
+    for _, row in self.df.dropna(
+            subset=["student_count_yoy", "teacher_count_yoy"]  # &lt;-- 강사 포함 교원수
+    ).iterrows():
+        s, t = row["student_count_yoy"], row["teacher_count_yoy"]
+        if abs(s) &lt; 3 and abs(t) >= 10:   # &lt;-- 3%와 10%만 체크
+            self._add(row, "C1-3", ...)</div>
+      <p>문제 세 가지:</p>
+      <ol>
+        <li><strong>학생수 임계값이 3%이다.</strong> 정의서는 5%이다. 3%면 범위가 좁아서 탐지 건수가 줄어든다.</li>
+        <li><strong>"또는 5명 이상" 절대조건이 없다.</strong> 비율이 10% 미만이어도 절대 변동이 5명 이상이면 잡아야 한다.</li>
+        <li><strong><code>teacher_count_yoy</code>는 강사 포함 교원수 기준이다.</strong> data_loader.py에서 <code>teacher_count</code>는 <code>교원_자격종별교원현황__계</code>(강사 포함)를 사용한다. 정의서는 "강사 제외" 기준을 요구한다.</li>
+      </ol>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <p><strong>1단계: data_loader.py에 강사 제외 교원수 YoY 추가</strong></p>
+      <div class="code-block"># data_loader.py calculate_derived() 함수 안에 추가
+# 강사 제외 교원수 전년 대비 변동률 (C1-3, C1-4에서 사용)
+if "teacher_count_no_instructor" in df.columns:
+    df["teacher_no_inst_yoy"] = (
+        df.groupby("school_code")["teacher_count_no_instructor"]
+        .pct_change() * 100
+    )</div>
+
+      <p><strong>2단계: rule_engine.py 수정</strong></p>
+      <div class="code-block"># rule_engine.py: _check_c1_3 전체 교체
+def _check_c1_3(self):
+    """C1-3: 학생수 5% 이내 + 교원수(강사 제외) 10% 이상 또는 5명 이상"""
+    t_yoy_col = "teacher_no_inst_yoy"       # 강사 제외 교원수 YoY
+    t_abs_col = "teacher_count_no_instructor"  # 강사 제외 교원수 절대값
+    if t_yoy_col not in self.df.columns:
+        return
+
+    df_sorted = self.df.sort_values(["school_code", "year"])
+    for school_code, group in df_sorted.groupby("school_code"):
+        if len(group) &lt; 2:
+            continue
+        for i in range(1, len(group)):
+            curr = group.iloc[i]
+            prev = group.iloc[i - 1]
+            s = curr.get("student_count_yoy", np.nan)
+            t = curr.get(t_yoy_col, np.nan)
+            if pd.isna(s) or pd.isna(t):
+                continue
+
+            t_curr = curr.get(t_abs_col, np.nan)
+            t_prev = prev.get(t_abs_col, np.nan)
+            t_diff = abs(t_curr - t_prev) if (
+                pd.notna(t_curr) and pd.notna(t_prev)
+            ) else 0
+
+            # 조건: 학생수 5% 이내 + (교원수 10% 이상 또는 5명 이상)
+            if abs(s) &lt;= 5 and (abs(t) >= 10 or t_diff >= 5):
+                self._add(curr, "C1-3", "학생↔교원 불균형", 2, "C1",
+                    f"학생수 {s:+.1f}%(안정) "
+                    f"교원수(강사제외) {t:+.1f}% ({int(t_diff)}명 변동)",
+                    {"student_yoy": round(s, 1),
+                     "teacher_yoy": round(t, 1),
+                     "teacher_diff": int(t_diff)})</div>
+    </div>
+
+    <div class="detail-card">
+      <h5>수정 후 동작</h5>
+      <p>
+        예: 학생수 -1.2%(안정), 교원수(강사 제외) 72 -> 66명(-8.3%, 6명 변동)<br>
+        - abs(-1.2) &lt;= 5 -- 통과<br>
+        - abs(-8.3) &lt; 10이지만, t_diff = 6 >= 5 -- "또는 5명 이상" 조건으로 통과<br>
+        - 기존 코드에서는 미탐지였으나, 수정 후에는 탐지된다.
+      </p>
+    </div>
+  </div>
+</article>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<!-- 3. 부분 불일치 항목 -->
+<!-- ============================================================ -->
+<article class="section" id="partial">
+  <div class="section-badge">
+    <span class="section-dot warning"></span>
+    <span class="section-label warning">부분 불일치</span>
+  </div>
+  <h2 class="section-title">정의서와 부분적으로 다른 4건</h2>
+
+  <p>아래 항목들은 기본 로직은 맞지만, 일부 조건이 빠져 있거나 세부 수치가 다르다. 탐지 결과에 영향은 있지만, 불일치보다는 영향 범위가 작다.</p>
+
+  <!-- ===== C3-3 ===== -->
+  <div class="subsection" id="c3-3">
+    <h3>1. C3-3: 미조치 피해 (등급A/B)</h3>
+
+    <div class="key-message warning">
+      <span class="key-message-label warning">차이점 2가지</span>
+      <p>(1) 등급A 조건에서 "가해학생 선도조치 >0" 확인이 빠져 있다. (2) "동일 학교 3학기 이상 반복이면 등급A로 승격"하는 로직이 없다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 원문</span></h5>
+      <p>
+        등급A: "피해학생 <strong>3명 이상</strong> + 보호조치 0건 + <strong>가해학생 선도조치 >0</strong>, 또는 동일 학교 <strong>3회 이상 반복</strong>"<br>
+        등급B: "피해학생 1~2명 + 보호조치 0건, 또는 동일 학교 2회 반복"
+      </p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드가 실제로 하는 것</span></h5>
+      <p>
+        등급 구분은 피해학생수만 본다 (<code>v >= 3</code>이면 A, 아니면 B). 선도조치 유무를 확인하지 않는다. 반복 승격 로직도 없다.
+      </p>
+      <div class="code-block"># rule_engine.py 119~133행 (_check_c3_3)
+# 현재 코드의 등급 판정:
+star = 3 if v >= 3 else 2       # 피해학생수만으로 판정
+grade = "A" if v >= 3 else "B"  # 선도조치 확인 없음
+# 3학기 반복 승격 로직 없음</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <div class="code-block"># rule_engine.py: _check_c3_3에 선도조치 조건 추가
+def _check_c3_3(self):
+    # 1차 탐지: 행 단위
+    school_flags = {}  # {school_code: [grade_list]}
+    for _, row in self.df.iterrows():
+        v = int(row.get("bullying_victims", 0) or 0)
+        p = int(row.get("bullying_protection", 0) or 0)
+        perp = int(row.get("bullying_perpetrators", 0) or 0)
+        if v > 0 and p == 0:
+            if perp == 0:
+                continue  # 등급X
+            # 등급A: 피해 3명 이상 + 가해학생 존재(선도조치 수행 추정)
+            if v >= 3 and perp > 0:
+                grade, star = "A", 3
+            else:
+                grade, star = "B", 2
+            self._add(row, f"C3-3{grade}", "미조치 피해", star, "C3", ...)
+            # 반복 추적
+            sc = str(row.get("school_code", ""))
+            school_flags.setdefault(sc, []).append(grade)
+
+    # 2차: 3학기 이상 반복이면 등급A로 승격
+    for sc, grades in school_flags.items():
+        ab_count = sum(1 for g in grades if g in ("A", "B"))
+        if ab_count >= 3:
+            # 해당 학교의 B등급 탐지를 A등급으로 변경
+            for d in self.detections:
+                if d.school_code == sc and d.rule_id == "C3-3B":
+                    d.rule_id = "C3-3A"
+                    d.star = 3</div>
+      <p>
+        <strong>참고</strong>: 현재 데이터에서 <code>bullying_perpetrators</code>는 가해학생수이다. 정의서의 "선도조치 건수"와는 다르지만, data_loader.py에 선도조치 건수 컬럼이 없으므로, 가해학생수 > 0을 대용으로 사용할 수 있다. 정밀하게 하려면 <code>BULLY_COLS</code>에 선도조치 건수 컬럼을 추가해야 한다.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== B1-5 ===== -->
+  <div class="subsection" id="b1-5">
+    <h3>2. B1-5: 진학률 급변동</h3>
+
+    <div class="key-message warning">
+      <span class="key-message-label warning">별 등급 불일치</span>
+      <p>정의서 명세의 Python 코드는 20%p 이상이면 ★★★, 15~20%p면 ★★로 구분한다. 그런데 rule_engine.py는 15%p 이상이면 전부 ★★★으로 처리한다. 또한 정의서 본문 표에서는 B1-5를 일괄 ★★로 적어두었다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 Python 명세</span></h5>
+      <div class="code-block"># 정의서 부록 Python 코드 (948~949행)
+if abs(diff) >= 15.0:
+    star = 3 if abs(diff) >= 20.0 else 2  # 20%p 이상이면 ★★★</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">rule_engine.py 코드</span></h5>
+      <div class="code-block"># rule_engine.py 173~176행
+diff = rates[i] - rates[i - 1]
+if abs(diff) >= 15:
+    self._add(..., "B1-5", "진학률 급변동", 3, ...)  # 항상 ★★★</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <p>정의서 본문 표는 ★★이고, 정의서 Python 명세는 ★★/★★★ 구분이다. 정의서 본문 표를 우선으로 하되, Python 명세의 20%p 구분도 살려서 다음과 같이 수정:</p>
+      <div class="code-block"># ★ 등급 분리 적용
+star = 3 if abs(diff) >= 20 else 2
+self._add(group.iloc[i], "B1-5", "진학률 급변동", star, "B1", ...)</div>
+    </div>
+  </div>
+
+  <!-- ===== D2-2 ===== -->
+  <div class="subsection" id="d2-2">
+    <h3>3. D2-2: 유사학교 대비 극단값</h3>
+
+    <div class="key-message warning">
+      <span class="key-message-label warning">"중앙값 대비 50% 이상" 조건 누락</span>
+      <p>정의서는 "중앙값 대비 50% 이상 <strong>또는</strong> IQR 1.5배 외부"라고 되어 있지만, 코드는 IQR 1.5배만 체크한다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 원문</span></h5>
+      <p>"중앙값 대비 50% 이상 또는 <strong>IQR 1.5배 외부</strong>"</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드가 실제로 하는 것</span></h5>
+      <p>IQR 1.5배 바깥에 있는 학교만 탐지한다. 중앙값 대비 50% 조건은 구현되어 있지 않다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <div class="code-block"># _check_d2_2에 중앙값 50% 조건 추가
+median = yr[col].median()
+for _, row in yr.iterrows():
+    v = row[col]
+    is_iqr_outlier = (v &lt; lo) or (v > hi)
+    is_median_outlier = abs(v - median) / median >= 0.5 if median > 0 else False
+    if is_iqr_outlier or is_median_outlier:
+        self._add(row, "D2-2", ...)</div>
+      <p><strong>참고</strong>: 실제로 IQR 1.5배 바깥에 있는 값은 대부분 중앙값 50%도 충족하므로, 탐지 결과에 큰 차이는 없을 수 있다. 하지만 정의서와의 일관성을 위해 추가하는 것이 맞다.</p>
+    </div>
+  </div>
+
+  <!-- ===== E2-2 ===== -->
+  <div class="subsection" id="e2-2">
+    <h3>4. E2-2: 3년 동일값 반복</h3>
+
+    <div class="key-message warning">
+      <span class="key-message-label warning">노이즈 필터가 불완전하고 대상 컬럼이 제한적</span>
+      <p>정의서의 "소규모 정수 1~5 제외" 필터가 코드에서는 {0, 1, 100}만 제외한다. 또한 정의서는 "블랙리스트 외 모든 수치 컬럼"을 대상으로 하지만, 코드는 5개 컬럼만 체크한다.</p>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-def">정의서 노이즈 필터</span></h5>
+      <ul>
+        <li>비율 컬럼(급식비율 100% 등) 제외</li>
+        <li>상수 값 {0, 1, 100} 제외</li>
+        <li><strong>소규모 정수 1~5</strong> 제외</li>
+      </ul>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-code">코드의 노이즈 필터</span></h5>
+      <div class="code-block"># rule_engine.py 231행
+noise_values = {0, 1, 100, 0.0, 1.0, 100.0}  # 2, 3, 4, 5가 없음!
+
+# 대상 컬럼 (227~228행)
+cols = ["student_count", "teacher_count", "class_count",
+        "meal_cost_per_student", "students_per_class"]
+# 정의서: "블랙리스트 외 모든 수치 컬럼" (재정 예산서 등 포함)</div>
+    </div>
+
+    <div class="detail-card">
+      <h5><span class="tag tag-fix">코드 수정 가이드</span></h5>
+      <div class="code-block"># 1. 노이즈 필터 확장
+noise_values = {0, 1, 2, 3, 4, 5, 100, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 100.0}
+
+# 2. 대상 컬럼 확장 (data_loader에서 로드하는 컬럼 기준)
+cols = ["student_count", "teacher_count", "class_count",
+        "meal_cost_per_student", "students_per_class",
+        "meal_cost_total", "students_per_teacher",
+        "graduation_rate",
+        # 학교회계 데이터가 로드되면 추가:
+        # "budget_revenue", "budget_expense", ...
+        ]</div>
+      <p><strong>영향</strong>: 소규모 정수 2~5를 필터에 추가하면, "교원수 3명이 3년 동일" 같은 사실상 의미 없는 탐지가 걸러진다. 정의서가 의도한 것은 "재정 예산서 125,000천원이 3년 동일" 같은 유의미한 정체를 잡는 것이다.</p>
+    </div>
+  </div>
+</article>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<!-- 4. 미구현 룰 목록 -->
+<!-- ============================================================ -->
+<article class="section" id="unimplemented">
+  <div class="section-badge">
+    <span class="section-dot info"></span>
+    <span class="section-label info">미구현</span>
+  </div>
+  <h2 class="section-title">미구현 룰 11개</h2>
+
+  <p>아래 룰들은 rule_engine.py에 코드가 없다. (보류 상태인 D2-3, E2-1은 제외)</p>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>룰 ID</th>
+          <th>이름</th>
+          <th>★</th>
+          <th>미구현 사유/비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="cell-bold">C1-2</td>
+          <td>학생↔학급 완만 역방향 변동</td>
+          <td>2</td>
+          <td>C1-1 코드에 <code>abs(c_diff) == 1</code> 분기만 추가하면 구현 가능</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-4</td>
+          <td>학급↔교원 불균형</td>
+          <td>1</td>
+          <td>학급수 0~1학급 변동 + 교원수(강사 제외) 5명 이상 변동. C1-3과 유사 패턴</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-5</td>
+          <td>학생↔보직교사 불균형</td>
+          <td>1</td>
+          <td>보직교사 데이터 컬럼 로드 필요</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">C1-7</td>
+          <td>교원1인당학생수 급변</td>
+          <td>1</td>
+          <td><code>students_per_teacher</code> 컬럼은 이미 있음. YoY 20% 체크만 추가</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-2</td>
+          <td>학생 교원 급변동 (단년)</td>
+          <td>2</td>
+          <td>현재 B1-1 코드가 사실상 B1-2이므로, B1-1 수정 시 함께 분리</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-3</td>
+          <td>학교회계 변동</td>
+          <td>2</td>
+          <td>학교회계 세입/세출 데이터 로드 필요</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">B1-4</td>
+          <td>학교회계 강한 변동</td>
+          <td>3</td>
+          <td>B1-3과 같은 데이터, 임계값만 50%</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">D2-1</td>
+          <td>유사학교 대비 상하위 10%</td>
+          <td>2</td>
+          <td>D2-2와 유사 구조. percentile 10%/90% 체크</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">E1-1</td>
+          <td>3년 연속 미입력</td>
+          <td>2</td>
+          <td>시설 관련 컬럼 로드 + 유사학교 공개율 비교 필요</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">E1-2</td>
+          <td>단독 미입력</td>
+          <td>3</td>
+          <td>E1-1과 같은 데이터, 조건만 "유사학교 전부 입력인데 이 학교만 누락"</td>
+        </tr>
+        <tr>
+          <td class="cell-bold">E1-3</td>
+          <td>공시 의무 항목 미제출</td>
+          <td>2</td>
+          <td>학교 유형별 의무 항목 매핑 테이블 필요</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</article>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<!-- 5. 추가 발견 사항 -->
+<!-- ============================================================ -->
+<article class="section" id="additional">
+  <div class="section-badge">
+    <span class="section-dot info"></span>
+    <span class="section-label info">추가 발견</span>
+  </div>
+  <h2 class="section-title">코드 전반에 걸친 참고사항</h2>
+
+  <div class="subsection">
+    <h3>1. run_all() 주석의 용어</h3>
+    <p>
+      <code>rule_engine.py</code> 42행에 <code>self._check_c5_1()   # 코호트 단절</code>이라는 주석이 있다.
+      프로젝트 용어 규칙에 따르면 "코호트 단절" 대신 <strong>"진급 시 학생 이탈"</strong>을 사용해야 한다.
+      같은 라인에서 43행의 <code>self._check_e2_2()   # 3년 정체</code>도 <strong>"3년 동일값 반복"</strong>으로 수정해야 한다.
+    </p>
+  </div>
+
+  <div class="subsection">
+    <h3>2. Detection 클래스의 category 필드</h3>
+    <p>
+      <code>Detection</code> 데이터클래스의 <code>category</code> 필드는 프로젝트 용어 규칙에 따르면 <strong>"대분류"</strong>라고 불러야 한다.
+      필드명 자체를 바꾸면 외부 연동에 영향이 있으므로, 주석이나 문서에서 "대분류"로 표기하는 것을 권장한다.
+    </p>
+  </div>
+
+  <div class="subsection">
+    <h3>3. B1-1의 ★ 등급 확인</h3>
+    <p>
+      코드에서 B1-1의 star는 2로 되어 있어 정의서와 일치한다. 다만 MEMORY.md에 "B1-4: ★★→★★★ 복원"이라는 메모가 있다.
+      현재 코드에 B1-4는 미구현이므로, 구현 시 ★★★으로 설정해야 한다.
+    </p>
+  </div>
+
+  <div class="subsection">
+    <h3>4. D2-2의 유사학교 범위</h3>
+    <p>
+      현재 <code>_check_d2_2</code>는 연도별로 전체 42교를 대상으로 IQR을 계산한다(구 구분 없음).
+      정의서 5.3절에서 "서울 3구 통합 일반고 42교 (구 단위 분석은 N&lt;20으로 통계 의미 없어 통합)"라고 명시하고 있으므로,
+      현재 코드의 전체 비교 방식이 정의서와 일치한다.
+    </p>
+  </div>
+</article>
+
+</div><!-- /.content -->
+
+<!-- ===== FOOTER ===== -->
+<footer class="sources">
+  <details>
+    <summary>검증 근거 파일 목록</summary>
+    <div style="margin-top:24px;font-size:14px;color:var(--color-text-secondary);line-height:1.8">
+      <p><strong>비교 대상 코드</strong></p>
+      <ul style="list-style:none;padding:0">
+        <li style="padding:4px 0;border-bottom:1px solid var(--color-border-light)"><code>rule_engine.py</code> -- 룰 엔진 구현 (263행)</li>
+        <li style="padding:4px 0;border-bottom:1px solid var(--color-border-light)"><code>data_loader.py</code> -- 데이터 로드 및 통합 (332행)</li>
+      </ul>
+      <p style="margin-top:16px"><strong>비교 대상 정의서</strong></p>
+      <ul style="list-style:none;padding:0">
+        <li style="padding:4px 0;border-bottom:1px solid var(--color-border-light)"><code>[01] 룰셋_v3_정의서.md</code> -- 25개 룰 정의 + Python 명세 (1107행)</li>
+      </ul>
+      <p style="margin-top:16px"><strong>참고 문서</strong></p>
+      <ul style="list-style:none;padding:0">
+        <li style="padding:4px 0;border-bottom:1px solid var(--color-border-light)">HTML_설계_가이드.md -- 디자인 토큰 및 컴포넌트 설계서</li>
+        <li style="padding:4px 0">[01] 룰셋_v3_정의서.html -- 기존 HTML 보고서 스타일 참고</li>
+      </ul>
+    </div>
+  </details>
+</footer>
+
+</body>
+</html>

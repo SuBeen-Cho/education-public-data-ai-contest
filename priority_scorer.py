@@ -40,9 +40,9 @@ WEIGHT_V, WEIGHT_C, WEIGHT_R = 0.6, 0.2, 0.2
 
 # 사용자 노출 라벨 임계 (0~100)
 LABEL_THRESHOLDS = {
-    "critical": 75,
+    "critical": 70,
     "major":    50,
-    "minor":    25,
+    "minor":    30,
 }
 
 

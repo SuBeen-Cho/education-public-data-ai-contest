@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduData Watch — 이상 전파 추적 (Preview)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --bg:#F8FAFC;--white:#FFFFFF;
+  --border:#E2E8F0;--border-light:#F1F5F9;
+  --text:#0F172A;--text-sub:#475569;--text-muted:#94A3B8;
+  --navy:#0F2A4A;--navy-light:#1E3A5F;
+  --cobalt:#1D4ED8;--cobalt-hover:#1E40AF;--cobalt-light:#DBEAFE;--cobalt-bg:#EFF6FF;
+  --red:#DC2626;--red-bg:#FEF2F2;--red-light:#FECACA;
+  --green:#059669;--green-bg:#F0FDF4;
+  --amber:#D97706;--amber-bg:#FFF8E1;--amber-light:#FDE68A;
+  --purple:#7B5EA0;--purple-bg:#F3EEFA;
+  --radius:10px;--radius-sm:6px;
+  --shadow:0 1px 3px rgba(15,42,74,0.05);
+  --shadow-md:0 4px 12px rgba(15,42,74,0.08);
+  --shadow-lg:0 8px 24px rgba(15,42,74,0.12);
+  --font:'Pretendard Variable','Pretendard',-apple-system,sans-serif;
+  --mono:'JetBrains Mono','D2Coding',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);color:var(--text);background:var(--bg);min-height:100vh;line-height:1.55;word-break:keep-all}
+
+/* HEADER */
+header{background:var(--white);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+.hd-inner{max-width:1400px;margin:0 auto;padding:0 24px;display:flex;align-items:center;height:54px;gap:18px}
+.brand{display:flex;align-items:center;gap:8px}
+.brand-logo{width:28px;height:28px;background:var(--navy);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+.brand-name{font-size:14px;font-weight:800;color:var(--navy);letter-spacing:-0.02em}
+.hd-sep{width:1px;height:20px;background:var(--border)}
+.hd-title{font-size:13px;font-weight:700;color:var(--text-sub)}
+.hd-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.preview-pill{background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:3px 12px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.3px}
+
+/* PREVIEW BANNER */
+.preview-banner{background:linear-gradient(135deg,rgba(123,94,160,0.08) 0%,rgba(91,139,160,0.08) 100%);border-bottom:1px solid rgba(123,94,160,0.15)}
+.pb-inner{max-width:1400px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:14px}
+.pb-text{font-size:12px;color:var(--text-sub);line-height:1.55}
+.pb-text b{color:var(--navy);font-weight:700;display:block;margin-bottom:2px;font-size:12.5px}
+
+/* TOP BAR */
+.top-bar{max-width:1400px;margin:0 auto;padding:18px 24px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.top-title{font-size:17px;font-weight:800;color:var(--navy);letter-spacing:-0.02em}
+.scenario-select{padding:9px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font:13px var(--font);color:var(--text);background:var(--white);cursor:pointer;min-width:320px}
+.scenario-select:focus{outline:none;border-color:var(--cobalt)}
+
+/* 3-COL GRID */
+.dash{max-width:1400px;margin:0 auto;padding:16px 24px 32px;display:grid;grid-template-columns:230px 1fr 310px;gap:16px;align-items:flex-start}
+
+/* LEFT: 전파 목록 */
+.left{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:sticky;top:70px}
+.lp-head{padding:12px 16px;border-bottom:1px solid var(--border-light);font-size:11px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:6px}
+.lp-head::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+
+.step-list{padding:8px 0}
+.step-item{padding:10px 16px;border-left:3px solid transparent;cursor:pointer;transition:all .12s;border-bottom:1px solid var(--border-light)}
+.step-item:last-child{border-bottom:none}
+.step-item:hover{background:var(--bg)}
+.step-item.active{background:var(--cobalt-bg);border-left-color:var(--cobalt)}
+.step-item.root{border-left-color:var(--red)}
+.step-item.root.active{background:var(--red-bg);border-left-color:var(--red)}
+.step-tag{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:3px}
+.step-tag.tag-root{color:var(--red)}
+.step-tag.tag-l1{color:var(--amber)}
+.step-tag.tag-l2{color:var(--cobalt)}
+.step-tag.tag-ind{color:var(--green)}
+.step-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.3}
+.step-value{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.step-value.val-root{color:var(--red)}
+.step-value.val-l1{color:var(--amber)}
+.step-value.val-l2{color:var(--cobalt)}
+
+.summary-box{padding:14px 16px;background:var(--bg);border-top:1px solid var(--border)}
+.sb-title{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}
+.sb-row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+.sb-label{color:var(--text-sub);font-weight:600}
+.sb-val{font-weight:800;font-variant-numeric:tabular-nums}
+
+/* CENTER: 트리 그래프 */
+.center{min-width:0}
+.graph-canvas{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:30px 20px;min-height:540px;position:relative;overflow:visible}
+.graph-canvas::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--border)}
+
+/* 노드 — 클린 카드 스타일 */
+.node{position:absolute;border-radius:12px;padding:16px 20px;text-align:center;cursor:pointer;transition:all .35s ease;opacity:0;transform:translateY(10px);box-shadow:0 2px 8px rgba(15,42,74,0.06);min-width:130px;z-index:2;background:var(--white)}
+.node.visible{opacity:1;transform:translateY(0)}
+.node:hover{box-shadow:0 3px 10px rgba(15,42,74,0.08);z-index:3}
+.node.selected{outline:2px solid var(--cobalt);outline-offset:-2px;z-index:4}
+.node-dot{width:10px;height:10px;border-radius:50%;margin:0 auto 8px;transition:all .2s}
+.node-name{font-size:12.5px;font-weight:700;line-height:1.3;margin-bottom:4px;color:var(--text)}
+.node-val{font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:-0.02em}
+.node-sub{font-size:10.5px;font-weight:600;margin-top:4px;color:var(--text-muted)}
+
+.node.n-root{border-top:3px solid #E11D48;background:var(--white)}
+.node.n-root .node-dot{background:#E11D48}
+.node.n-root .node-val{color:#E11D48}
+.node.n-l1{border-top:3px solid #F59E0B;background:var(--white)}
+.node.n-l1 .node-dot{background:#F59E0B}
+.node.n-l1 .node-val{color:#B45309}
+.node.n-l2{border-top:3px solid var(--cobalt);background:var(--white)}
+.node.n-l2 .node-dot{background:var(--cobalt)}
+.node.n-l2 .node-val{color:var(--cobalt)}
+.node.n-none{border-top:3px solid var(--border);background:var(--white)}
+.node.n-none .node-dot{background:var(--text-muted)}
+.node.n-none .node-val{color:var(--text-muted)}
+.node.n-none .node-name{color:var(--text-muted)}
+.node.n-ind{border-top:3px solid var(--green);background:var(--white)}
+.node.n-ind .node-dot{background:var(--green)}
+.node.n-ind .node-val{color:var(--green)}
+
+/* 연결선 (SVG) */
+.graph-svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.edge-line{stroke:var(--border);stroke-width:1.5;fill:none;stroke-dasharray:6 4;transition:all .4s}
+.edge-line.visible{stroke:#94A3B8;stroke-dasharray:none;stroke-width:1.5}
+
+/* 설명 라벨 (연결선 위) */
+.edge-label{position:absolute;font-size:10px;font-weight:600;color:var(--text-muted);background:var(--white);padding:2px 8px;border-radius:10px;border:1px solid var(--border);z-index:2;opacity:0;transition:opacity .4s;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+.edge-label.visible{opacity:1}
+
+/* 독립 표시 */
+.independent-badge{position:absolute;font-size:11px;font-weight:700;color:var(--text-muted);background:var(--white);border:1px dashed var(--border);padding:6px 16px;border-radius:20px;z-index:2;opacity:0;transition:opacity .4s;box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+.independent-badge.visible{opacity:1}
+
+/* RIGHT: 노드 상세 */
+.right{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:sticky;top:70px;max-height:calc(100vh - 86px);overflow-y:auto}
+.rp-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.rp-head h3{font-size:12px;font-weight:800;color:var(--navy);display:flex;align-items:center;gap:6px}
+.rp-head h3::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+.rp-empty{padding:40px 20px;text-align:center;color:var(--text-muted);font-size:12px;line-height:1.6}
+
+.detail-section{padding:16px 18px;border-bottom:1px solid var(--border-light)}
+.detail-section:last-child{border-bottom:none}
+.ds-title{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.ds-title .ds-dot{width:7px;height:7px;border-radius:50%}
+
+/* 수치 카드 */
+.num-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.num-card{padding:10px;background:var(--bg);border-radius:var(--radius-sm);text-align:center;border:1px solid var(--border-light)}
+.num-card.wide{grid-column:1/-1}
+.nc-val{font-size:18px;font-weight:900;font-variant-numeric:tabular-nums;color:var(--navy);line-height:1.1}
+.nc-label{font-size:10px;color:var(--text-muted);font-weight:600;margin-top:3px}
+.nc-val.up{color:var(--red)}.nc-val.down{color:var(--cobalt)}.nc-val.stable{color:var(--green)}
+
+/* 영향 설명 */
+.impact-explain{background:var(--cobalt-bg);border-left:3px solid var(--cobalt);border-radius:0 var(--radius-sm) var(--radius-sm) 0;padding:12px 14px;font-size:12px;color:#1E40AF;line-height:1.65}
+.impact-explain b{font-weight:800}
+.impact-explain.no-impact{background:var(--green-bg);border-left-color:var(--green);color:#065F46}
+
+/* 관련 룰 */
+.rule-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--radius-sm);font-size:11px;font-weight:700;margin:2px 4px 2px 0;border:1px solid var(--border)}
+.rule-chip.detected{background:var(--cobalt-bg);border-color:var(--cobalt-light);color:var(--cobalt)}
+.rule-chip.not-detected{background:var(--bg);color:var(--text-muted)}
+.rule-chip .rc-score{font-weight:800;font-variant-numeric:tabular-nums}
+
+/* AI 해석 */
+.ai-box{background:linear-gradient(135deg,rgba(123,94,160,0.06) 0%,rgba(91,139,160,0.06) 100%);border:1px solid rgba(123,94,160,0.15);border-radius:var(--radius-sm);padding:14px 16px}
+.ai-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.ai-tag{background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:0.3px}
+.ai-label{font-size:11px;font-weight:800;color:var(--navy)}
+.ai-text{font-size:12.5px;color:var(--text-sub);line-height:1.65}
+.ai-text b{color:var(--navy);font-weight:700}
+
+/* 수식 설명 */
+.formula-box{background:var(--bg);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:10px 14px;margin-top:8px;font-size:12.5px;color:var(--text-sub);text-align:center;line-height:1.6;font-weight:600}
+
+/* EMPTY */
+.dash-empty{max-width:1400px;margin:0 auto;padding:16px 24px}
+.empty-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:60px 20px;text-align:center}
+.empty-icon{font-size:40px;margin-bottom:12px;opacity:0.3}
+.empty-text{color:var(--text-muted);font-size:13px}
+.empty-sub{font-size:11px;color:var(--text-muted);margin-top:6px;opacity:0.7}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeUp .3s ease-out both}
+
+@media(max-width:1100px){.dash{grid-template-columns:200px 1fr 280px}}
+@media(max-width:900px){.dash{grid-template-columns:1fr}.left,.right{position:static;max-height:none}.graph-canvas{min-height:400px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd-inner">
+    <div class="brand"><div class="brand-logo">E</div><div class="brand-name">EduData Watch</div></div>
+    <div class="hd-sep"></div>
+    <div class="hd-title">이상 전파 추적</div>
+    <div class="hd-right">
+      <span class="preview-pill">Preview</span>
+    </div>
+  </div>
+</header>
+
+<div class="preview-banner">
+  <div class="pb-inner">
+    <span class="preview-pill" style="font-size:11px;padding:4px 14px">Preview</span>
+    <div class="pb-text">
+      <b>하나의 이상이 다른 지표에 연쇄적으로 영향을 주는 경로를 시각화합니다.</b>
+      같은 원인에서 비롯된 여러 탐지 신호를 한눈에 파악하여, 어떤 것을 먼저 확인하면 되는지 안내합니다.
+    </div>
+  </div>
+</div>
+
+<div class="top-bar">
+  <div class="top-title">전파 경로 확인</div>
+  <select class="scenario-select" id="scenarioSel" onchange="loadScenario(this.value)">
+    <option value="">시나리오를 선택하세요</option>
+    <option value="0">압구정고 2025 — 학급수 급증 (+23%)</option>
+    <option value="1">경기고 2025 — 학폭 피해 급증 (9명)</option>
+    <option value="2">당곡고 2024 — 급식비 급감 (-76%)</option>
+  </select>
+</div>
+
+<!-- 3-COL -->
+<div class="dash" id="dashArea" style="display:none">
+  <aside class="left fade-in">
+    <div class="lp-head">전파 단계</div>
+    <div class="step-list" id="stepList"></div>
+    <div class="summary-box" id="summaryBox"></div>
+  </aside>
+
+  <section class="center fade-in">
+    <div class="graph-canvas" id="graphCanvas">
+      <svg class="graph-svg" id="graphSvg"></svg>
+    </div>
+  </section>
+
+  <aside class="right fade-in">
+    <div class="rp-head"><h3>노드 상세</h3></div>
+    <div id="detailContent">
+      <div class="rp-empty">좌측 목록 또는 그래프의<br>노드를 클릭하면<br>상세 정보가 표시됩니다.</div>
+    </div>
+  </aside>
+</div>
+
+<div class="dash-empty" id="emptyState">
+  <div class="empty-card">
+    <div class="empty-icon">&#128279;</div>
+    <div class="empty-text">위에서 시나리오를 선택하면 전파 경로가 표시됩니다.</div>
+    <div class="empty-sub">3개 시나리오: 연쇄 전파 / 독립 사건 / 부분 전파</div>
+  </div>
+</div>
+
+<script>
+const SCENARIOS = [
+  {
+    title: "압구정고 2025 — 학급수 급증이 만든 연쇄 탐지",
+    steps: [
+      {tag:"근원",tagCls:"tag-root",name:"학급수",value:"+23.1%",valCls:"val-root",id:"root"},
+      {tag:"1차 영향",tagCls:"tag-l1",name:"학급당 학생수",value:"+18.6%",valCls:"val-l1",id:"l1a"},
+      {tag:"1차 영향",tagCls:"tag-l1",name:"교원 1인당 학생수",value:"-12.1%",valCls:"val-l1",id:"l1b"},
+      {tag:"영향 없음",tagCls:"tag-ind",name:"학생수 변동률",value:"+4.6%",valCls:"",id:"l1c"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"C1-8 학급당학생수 급변",value:"4.0점",valCls:"val-l2",id:"l2a"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"C1-7 교원1인당학생수 급변",value:"0.3점",valCls:"val-l2",id:"l2b"}
+    ],
+    nodes: [
+      {id:"root",name:"학급수",val:"+23.1%",sub:"26 → 32학급",cls:"n-root",x:42,y:16},
+      {id:"l1a",name:"학급당 학생수",val:"+18.6%",sub:"20.1 → 24.7명",cls:"n-l1",x:15,y:46},
+      {id:"l1b",name:"교원 1인당 학생수",val:"-12.1%",sub:"11.2 → 9.8명",cls:"n-l1",x:42,y:46},
+      {id:"l1c",name:"학생수 변동률",val:"+4.6%",sub:"임계 미달",cls:"n-none",x:70,y:46},
+      {id:"l2a",name:"C1-8 탐지",val:"4.0점",sub:"학급당학생수 급변",cls:"n-l2",x:15,y:76},
+      {id:"l2b",name:"C1-7 탐지",val:"0.3점",sub:"교원1인당학생수 급변",cls:"n-l2",x:42,y:76}
+    ],
+    edges: [
+      {from:"root",to:"l1a",label:"나누기 관계"},{from:"root",to:"l1b",label:"나누기 관계"},{from:"root",to:"l1c",label:"영향 확인"},
+      {from:"l1a",to:"l2a",label:"기준 초과"},{from:"l1b",to:"l2b",label:"기준 초과"}
+    ],
+    details: {
+      root:{title:"학급수",nums:[{label:"2024년",val:"26학급"},{label:"2025년",val:"32학급"},{label:"변동",val:"+23.1%",cls:"up"},{label:"변동 학급수",val:"+6학급",cls:"up"}],
+        explain:"학급수가 1년 만에 6학급(23%) 급증했습니다. <b>학급당 학생수</b>와 <b>교원 1인당 학생수</b>는 학급수로 나눠서 계산하는 값이기 때문에, 학급수가 바뀌면 자동으로 영향을 받습니다.",
+        formula:"학급당 학생수 = 전체 학생수 나누기 학급수이므로, 학급수가 변하면 자동으로 영향을 받습니다",
+        rules:[{name:"C1-1 학생↔학급 역방향",detected:true,score:"3.0"},{name:"C1-8 학급당학생수 급변",detected:true,score:"4.0"}],
+        ai:"학급수 급증이 이번 탐지의 <b>근원</b>입니다. 학급 편성 변경 사유(학과 신설, 정원 조정 등)를 먼저 확인하면, 학급당학생수(C1-8)와 교원1인당학생수(C1-7) 탐지도 함께 해소될 가능성이 높습니다."},
+      l1a:{title:"학급당 학생수",nums:[{label:"2024년",val:"20.1명"},{label:"2025년",val:"24.7명"},{label:"변동",val:"+4.6명",cls:"up"},{label:"변동률",val:"+18.6%",cls:"up"}],
+        explain:"학급당 학생수 = 전체 학생수 / 학급수입니다. 학급수가 +23% 늘었는데 학생수도 +4.6% 늘어서, 학급당 학생수가 <b>+18.6%</b> 증가했습니다. 이 값이 임계(±1.5명/학급)를 넘어 C1-8로 탐지됐습니다.",
+        formula:"작년 20.1명 → 올해 24.7명으로 4.6명 증가 (기준 1.5명 초과)",
+        rules:[{name:"C1-8 학급당학생수 급변",detected:true,score:"4.0"}],
+        ai:"이 변동은 <b>학급수 변동의 결과</b>입니다. 학급당 학생수 자체가 문제가 아니라, 학급수 편성이 변경된 이유를 확인하는 것이 핵심입니다."},
+      l1b:{title:"교원 1인당 학생수",nums:[{label:"2024년",val:"11.2명"},{label:"2025년",val:"9.8명"},{label:"변동",val:"-1.4명",cls:"down"},{label:"변동률",val:"-12.1%",cls:"down"}],
+        explain:"교원 1인당 학생수 = 전체 학생수 / 교원수입니다. 학생수가 소폭 증가했지만 교원수도 함께 늘어 비율이 <b>-12.1%</b> 감소했습니다. 임계(20%)를 넘지 않아 점수는 낮습니다.",
+        formula:"작년 11.2명 → 올해 9.8명으로 1.4명 감소 (변동률 12.1%)",
+        rules:[{name:"C1-7 교원1인당학생수 급변",detected:true,score:"0.3"}],
+        ai:"변동폭이 크지 않아 점수(0.3점)는 낮습니다. 학급수 변동의 간접 영향이며, <b>별도 확인이 필요한 수준은 아닙니다</b>."},
+      l1c:{title:"학생수 변동률",nums:[{label:"2024년",val:"522명"},{label:"2025년",val:"546명"},{label:"변동",val:"+24명"},{label:"변동률",val:"+4.6%"}],
+        explain:"학생수 변동률은 +4.6%로, 급변동 임계(±10%)에 미달합니다. 학급수가 늘어난 것과 별개로 학생수 자체는 정상 범위입니다.",
+        noImpact:true,
+        rules:[{name:"B1-2 학생 급변동",detected:false}],
+        ai:"학생수 변동은 <b>정상 범위</b>입니다. 이 지표에서는 추가 확인이 필요하지 않습니다."},
+      l2a:{title:"C1-8 탐지: 학급당학생수 급변",nums:[{label:"이상치 점수",val:"4.0점",cls:"up"},{label:"위험도",val:"3 (자원 배분)"},{label:"초과량",val:"+3.2명"},{label:"임계",val:"±1.5명"}],
+        explain:"학급당 학생수가 임계(±1.5명)를 3.2명 초과하여 <b>4.0점</b>으로 탐지되었습니다. 이 탐지는 학급수 급증(근원)에서 파생된 것입니다.",
+        rules:[],
+        ai:"이 탐지의 근원은 <b>학급수 변동</b>입니다. 학급수 편성 변경 사유를 확인하면 이 탐지도 해소됩니다. 감쇠 계수가 적용되어 같은 대분류(C1) 내 2번째 탐지로 30%만 반영됩니다."},
+      l2b:{title:"C1-7 탐지: 교원1인당학생수 급변",nums:[{label:"이상치 점수",val:"0.3점"},{label:"위험도",val:"3 (자원 배분)"},{label:"초과량",val:"2.1%"},{label:"임계",val:"±20%"}],
+        explain:"교원 1인당 학생수가 임계에 간신히 걸려 <b>0.3점</b>입니다. 학급수 변동의 간접 영향이며 심각도는 낮습니다.",
+        rules:[],
+        ai:"점수가 매우 낮아(0.3점) 실질적으로 확인 우선순위가 낮습니다. 학급수 근원을 해소하면 자동으로 해소됩니다."}
+    },
+    summary:{root:"학급수 +23%",chain:"1개 근원 → 3개 영향 → 2개 탐지",decay:"감쇠 전 7.3 → 감쇠 후 4.5 (-38%)",action:"학급 편성 사유를 먼저 확인"}
+  },
+  {
+    title: "경기고 2025 — 서로 독립적인 두 탐지",
+    steps: [
+      {tag:"사건 A",tagCls:"tag-root",name:"피해학생 수",value:"9명",valCls:"val-root",id:"n1"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"C3-3A 미조치 피해",value:"10.0점",valCls:"val-l2",id:"n2"},
+      {tag:"사건 B",tagCls:"tag-ind",name:"심의 건수",value:"15건",valCls:"val-root",id:"n3"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"B1-6 학폭 심의 급증",value:"6.0점",valCls:"val-l2",id:"n4"}
+    ],
+    nodes: [
+      {id:"n1",name:"피해학생 수",val:"9명",sub:"보호조치 0건",cls:"n-root",x:25,y:25},
+      {id:"n2",name:"C3-3A 탐지",val:"10.0점",sub:"미조치 피해 (강력)",cls:"n-l2",x:25,y:65},
+      {id:"n3",name:"심의 건수",val:"15건",sub:"전년 5건 → 15건",cls:"n-root",x:65,y:25},
+      {id:"n4",name:"B1-6 탐지",val:"6.0점",sub:"학폭 심의 급증",cls:"n-l2",x:65,y:65}
+    ],
+    edges: [
+      {from:"n1",to:"n2",label:"보호 미실시"},{from:"n3",to:"n4",label:"전년의 3배"}
+    ],
+    independentBadge:{text:"연결 없음 — 독립 사건",x:45,y:45},
+    details: {
+      n1:{title:"피해학생 수",nums:[{label:"2025년",val:"9명",cls:"up"},{label:"보호조치",val:"0건",cls:"up"},{label:"선도조치",val:"5건"},{label:"가해학생",val:"4명"}],
+        explain:"피해학생이 9명인데 보호조치가 0건입니다. 가해학생에 대한 선도조치(5건)는 있지만, <b>피해학생 보호는 이루어지지 않았습니다</b>.",
+        rules:[{name:"C3-3A 미조치 피해",detected:true,score:"10.0"}],
+        ai:"피해학생 보호조치 누락은 <b>학생안전 영역</b>에서 가장 심각한 신호입니다. 심의 건수 급증(B1-6)과는 <b>별개 사안</b>으로, 각각 독립적으로 확인이 필요합니다."},
+      n2:{title:"C3-3A: 미조치 피해 (강력)",nums:[{label:"이상치 점수",val:"10.0점",cls:"up"},{label:"위험도",val:"5 (학생안전)"},{label:"피해학생",val:"9명"},{label:"최소기준",val:"3명"}],
+        explain:"위험도 5(최고) × 초과량 2.0(상한) = <b>10.0점 만점</b>. 피해학생 9명은 최소기준(3명)의 3배입니다.",
+        rules:[],
+        ai:"시스템 전체에서 <b>가장 높은 점수</b>입니다. 즉시 확인이 필요합니다."},
+      n3:{title:"심의 건수",nums:[{label:"2024년",val:"5건"},{label:"2025년",val:"15건"},{label:"변동",val:"+10건",cls:"up"},{label:"변동률",val:"+200%",cls:"up"}],
+        explain:"학폭 심의 건수가 5건에서 15건으로 <b>3배 급증</b>했습니다. 이것은 피해학생 수 증가와 관련이 있을 수 있지만, 데이터 구조상 별개 항목으로 입력됩니다.",
+        noImpact:false,
+        rules:[{name:"B1-6 학폭 심의 급증",detected:true,score:"6.0"}],
+        ai:"심의 건수 급증은 피해학생 증가와 <b>같은 맥락일 수 있지만</b>, 공시 데이터 구조상 서로 다른 시트에서 독립적으로 입력되므로 인과관계를 자동으로 판단할 수 없습니다."},
+      n4:{title:"B1-6: 학폭 심의 급증",nums:[{label:"이상치 점수",val:"6.0점",cls:"up"},{label:"위험도",val:"3 (급변동)"},{label:"심의건수",val:"15건"},{label:"최소기준",val:"5건"}],
+        explain:"심의건수 15건은 최소기준(5건)의 3배로, 초과량 상한(2.0)에 도달하여 <b>6.0점</b>입니다.",
+        rules:[],
+        ai:"C3-3A와 함께 확인하되, <b>각각 개별적으로 사유를 확인</b>해야 합니다. 하나를 해소해도 다른 하나는 남아있습니다."}
+    },
+    summary:{root:"피해학생 9명 + 심의 15건",chain:"2개 독립 사건 → 각각 1개 탐지",decay:"감쇠 없음 (다른 대분류)",action:"각각 개별 확인 필요"}
+  },
+  {
+    title: "당곡고 2024 — 급식비 급감의 부분 전파",
+    steps: [
+      {tag:"근원",tagCls:"tag-root",name:"급식비 총액",value:"-76.5%",valCls:"val-root",id:"root"},
+      {tag:"1차 영향",tagCls:"tag-l1",name:"1인당 급식비",value:"-74.2%",valCls:"val-l1",id:"l1a"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"C2-3+ 급식비 강한 변동",value:"6.0점",valCls:"val-l2",id:"l2a"},
+      {tag:"탐지됨",tagCls:"tag-l2",name:"D2-1 유사학교 이탈",value:"1.6점",valCls:"val-l2",id:"l2b"}
+    ],
+    nodes: [
+      {id:"root",name:"급식비 총액",val:"-76.5%",sub:"4.2억 → 0.99억",cls:"n-root",x:42,y:16},
+      {id:"l1a",name:"1인당 급식비",val:"-74.2%",sub:"유사학교 하위 이탈",cls:"n-l1",x:25,y:48},
+      {id:"l2a",name:"C2-3+ 탐지",val:"6.0점",sub:"급식비 강한 변동",cls:"n-l2",x:60,y:48},
+      {id:"l2b",name:"D2-1 탐지",val:"1.6점",sub:"유사학교 하위 10% 이탈",cls:"n-l2",x:25,y:78}
+    ],
+    edges: [
+      {from:"root",to:"l2a",label:"기준 30% 초과"},{from:"root",to:"l1a",label:"나누기 관계"},
+      {from:"l1a",to:"l2b",label:"하위 10% 이탈"}
+    ],
+    details: {
+      root:{title:"급식비 총액",nums:[{label:"2023년",val:"4.2억"},{label:"2024년",val:"0.99억"},{label:"변동",val:"-3.21억",cls:"up"},{label:"변동률",val:"-76.5%",cls:"up"}],
+        explain:"급식비가 1년 만에 <b>76.5% 급감</b>했습니다. 이 정도의 급변동은 실제 급식 운영 변경이거나, <b>입력 단위 오류</b>(천원 → 원)일 가능성이 있습니다.",
+        formula:"정보공시매뉴얼: 급식비 입력단위는 '천원'",
+        rules:[{name:"C2-3+ 급식비 강한 변동",detected:true,score:"6.0"},{name:"C2-3 급식비 변동",detected:true,score:"5.9"}],
+        ai:"급식비 -76.5%는 <b>단위 오류(천원→원) 가능성</b>이 높습니다. 실제로 급식 운영이 이 정도로 축소되는 경우는 드뭅니다. 입력 단위를 먼저 확인하세요."},
+      l1a:{title:"1인당 급식비",nums:[{label:"2023년",val:"782만원"},{label:"2024년",val:"202만원"},{label:"변동",val:"-74.2%",cls:"up"},{label:"유사학교 평균",val:"650만원"}],
+        explain:"1인당 급식비 = 급식비 총액 / 학생수입니다. 급식비가 급감했으므로 1인당 급식비도 <b>-74.2%</b> 감소했고, 유사학교(42교) 평균 대비 하위 10%에 해당합니다.",
+        formula:"이 학교 202만원은 유사학교 하위 10% 기준(284만원)보다 낮습니다",
+        rules:[{name:"D2-1 유사학교 이탈",detected:true,score:"1.6"}],
+        ai:"급식비 총액 급감의 <b>파생 결과</b>입니다. 급식비 총액의 입력 오류를 해소하면 이 탐지도 자동 해소됩니다."},
+      l2a:{title:"C2-3+: 급식비 강한 변동",nums:[{label:"이상치 점수",val:"6.0점",cls:"up"},{label:"위험도",val:"3 (재정 연동)"},{label:"변동률",val:"-76.5%"},{label:"임계",val:"±30%"}],
+        explain:"급식비 변동률이 임계(±30%)를 크게 초과하여 초과량 상한(2.0)에 도달, <b>6.0점 만점</b>입니다.",
+        rules:[],
+        ai:"급식비 입력 오류 여부를 확인하세요. 실제 급식 운영 축소라면 사유를 기록해야 합니다."},
+      l2b:{title:"D2-1: 유사학교 하위 10% 이탈",nums:[{label:"이상치 점수",val:"1.6점"},{label:"위험도",val:"2 (통계 참고)"},{label:"본교 값",val:"202만원"},{label:"하위 10%",val:"284만원"}],
+        explain:"1인당 급식비가 유사학교 42교 기준 하위 10% 밖으로 이탈했습니다. 급식비 총액의 파생 결과입니다.",
+        rules:[],
+        ai:"급식비 총액(근원)을 확인하면 자동 해소됩니다. <b>별도 확인은 불필요</b>합니다."}
+    },
+    summary:{root:"급식비 -76.5%",chain:"1개 근원 → 1개 영향 → 2개 탐지",decay:"감쇠 전 7.6 → 감쇠 후 6.5 (-14%)",action:"급식비 입력 단위(천원/원) 확인"}
+  }
+];
+
+let currentScenario = -1;
+let selectedNode = null;
+
+function loadScenario(idx){
+  if(idx==='') return;
+  currentScenario = parseInt(idx);
+  const sc = SCENARIOS[currentScenario];
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('dashArea').style.display='grid';
+
+  // LEFT
+  let stepsHtml = '';
+  sc.steps.forEach((s,i)=>{
+    stepsHtml += `<div class="step-item ${s.tagCls==='tag-root'?'root':''}" data-id="${s.id}" onclick="selectNode('${s.id}')">
+      <div class="step-tag ${s.tagCls}">${s.tag}</div>
+      <div class="step-name">${s.name}</div>
+      <div class="step-value ${s.valCls}">${s.value}</div>
+    </div>`;
+  });
+  document.getElementById('stepList').innerHTML = stepsHtml;
+
+  let sumHtml = `<div class="sb-title">요약</div>`;
+  sumHtml += `<div class="sb-row"><span class="sb-label">근원</span><span class="sb-val">${sc.summary.root}</span></div>`;
+  sumHtml += `<div class="sb-row"><span class="sb-label">전파</span><span class="sb-val">${sc.summary.chain}</span></div>`;
+  sumHtml += `<div class="sb-row"><span class="sb-label">감쇠</span><span class="sb-val">${sc.summary.decay}</span></div>`;
+  sumHtml += `<div class="sb-row"><span class="sb-label" style="color:var(--cobalt)">확인 포인트</span><span class="sb-val" style="color:var(--cobalt)">${sc.summary.action}</span></div>`;
+  document.getElementById('summaryBox').innerHTML = sumHtml;
+
+  // CENTER: 그래프
+  renderGraph(sc);
+
+  // RIGHT: 초기화
+  selectedNode = null;
+  document.getElementById('detailContent').innerHTML = '<div class="rp-empty">좌측 목록 또는 그래프의<br>노드를 클릭하면<br>상세 정보가 표시됩니다.</div>';
+}
+
+function renderGraph(sc){
+  const canvas = document.getElementById('graphCanvas');
+  const svg = document.getElementById('graphSvg');
+  // 기존 노드/라벨 제거 (SVG 제외)
+  canvas.querySelectorAll('.node,.edge-label,.independent-badge').forEach(e=>e.remove());
+  svg.innerHTML = '';
+
+  // 노드 렌더
+  sc.nodes.forEach((n,i)=>{
+    const div = document.createElement('div');
+    div.className = `node ${n.cls}`;
+    div.id = 'node-'+n.id;
+    div.style.left = n.x+'%';
+    div.style.top = n.y+'%';
+    div.style.transform = 'translate(-50%,-50%) scale(0.7)';
+    div.innerHTML = `<div class="node-dot"></div><div class="node-name">${n.name}</div><div class="node-val">${n.val}</div><div class="node-sub">${n.sub}</div>`;
+    div.onclick = ()=>selectNode(n.id);
+    canvas.appendChild(div);
+    setTimeout(()=>{div.classList.add('visible');div.style.transform='translate(-50%,-50%) translateY(0)';}, 150+i*200);
+  });
+
+  // 연결선 + 라벨 (setTimeout으로 노드 렌더 후)
+  setTimeout(()=>{
+    const rect = canvas.getBoundingClientRect();
+    sc.edges.forEach((e,i)=>{
+      const fromEl = document.getElementById('node-'+e.from);
+      const toEl = document.getElementById('node-'+e.to);
+      if(!fromEl||!toEl) return;
+      const fr = fromEl.getBoundingClientRect();
+      const tr = toEl.getBoundingClientRect();
+      const x1 = fr.left+fr.width/2-rect.left;
+      const y1 = fr.top+fr.height-rect.top;
+      const x2 = tr.left+tr.width/2-rect.left;
+      const y2 = tr.top-rect.top;
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1',x1);line.setAttribute('y1',y1);
+      line.setAttribute('x2',x2);line.setAttribute('y2',y2);
+      line.setAttribute('class','edge-line');
+      svg.appendChild(line);
+      setTimeout(()=>line.classList.add('visible'),300+i*150);
+
+      // 라벨
+      if(e.label){
+        const lbl = document.createElement('div');
+        lbl.className = 'edge-label';
+        lbl.textContent = e.label;
+        lbl.style.left = ((x1+x2)/2)+'px';
+        lbl.style.top = ((y1+y2)/2 - 8)+'px';
+        lbl.style.transform = 'translate(-50%,-50%)';
+        canvas.appendChild(lbl);
+        setTimeout(()=>lbl.classList.add('visible'),500+i*150);
+      }
+    });
+  }, 200+sc.nodes.length*200);
+
+  // 독립 배지
+  if(sc.independentBadge){
+    const badge = document.createElement('div');
+    badge.className = 'independent-badge';
+    badge.textContent = sc.independentBadge.text;
+    badge.style.left = sc.independentBadge.x+'%';
+    badge.style.top = sc.independentBadge.y+'%';
+    badge.style.transform = 'translate(-50%,-50%)';
+    canvas.appendChild(badge);
+    setTimeout(()=>badge.classList.add('visible'),800);
+  }
+}
+
+function selectNode(id){
+  selectedNode = id;
+  const sc = SCENARIOS[currentScenario];
+  const d = sc.details[id];
+  if(!d) return;
+
+  // 좌측 하이라이트
+  document.querySelectorAll('.step-item').forEach(el=>{
+    el.classList.toggle('active',el.dataset.id===id);
+  });
+
+  // 중앙 노드 하이라이트
+  document.querySelectorAll('.node').forEach(el=>{
+    el.classList.toggle('selected',el.id==='node-'+id);
+  });
+
+  // 우측 상세
+  let html = '';
+
+  // 수치
+  html += `<div class="detail-section"><div class="ds-title"><span class="ds-dot" style="background:var(--navy)"></span>${d.title} — 수치</div>`;
+  html += `<div class="num-grid">`;
+  d.nums.forEach(n=>{
+    html += `<div class="num-card"><div class="nc-val ${n.cls||''}">${n.val}</div><div class="nc-label">${n.label}</div></div>`;
+  });
+  html += `</div>`;
+  if(d.formula) html += `<div class="formula-box">${d.formula}</div>`;
+  html += `</div>`;
+
+  // 영향 설명
+  html += `<div class="detail-section"><div class="ds-title"><span class="ds-dot" style="background:var(--amber)"></span>이 변동이 다른 지표에 영향을 줬을까?</div>`;
+  html += `<div class="impact-explain ${d.noImpact?'no-impact':''}">${d.explain}</div>`;
+  html += `</div>`;
+
+  // 관련 룰
+  if(d.rules && d.rules.length > 0){
+    html += `<div class="detail-section"><div class="ds-title"><span class="ds-dot" style="background:var(--cobalt)"></span>관련 룰</div>`;
+    d.rules.forEach(r=>{
+      html += `<div class="rule-chip ${r.detected?'detected':'not-detected'}">${r.name}${r.score?' <span class="rc-score">'+r.score+'점</span>':''} ${r.detected?'&#10003;':'&#10007;'}</div>`;
+    });
+    html += `</div>`;
+  }
+
+  // AI 해석
+  html += `<div class="detail-section"><div class="ai-box"><div class="ai-head"><span class="ai-tag">AI</span><span class="ai-label">해석</span></div><div class="ai-text">${d.ai}</div></div></div>`;
+
+  document.getElementById('detailContent').innerHTML = html;
+}
+</script>
+</body>
+</html>

@@ -1078,6 +1078,103 @@ async def stats():
     }
 
 
+# ── 룰 생성기 테스트 (샌드박스) ──
+
+class RuleLabRequest(BaseModel):
+    query: str
+
+@app.post("/api/rulelab")
+async def rulelab(req: RuleLabRequest):
+    """샌드박스 룰 생성기 — AI가 자연어 → 룰 해석 + 코드 생성 + 시뮬레이션. 메인 엔진 무관."""
+    client = app_state.get("gemini")
+    df = app_state.get("df", pd.DataFrame())
+
+    if client is None:
+        return {"error": "AI 모델이 연결되지 않았습니다. GOOGLE_API_KEY를 설정해주세요."}
+
+    if df.empty:
+        return {"error": "데이터가 로드되지 않았습니다."}
+
+    cols = list(df.columns)
+    sample = df.head(3).to_dict(orient='records')
+
+    prompt = f"""너는 교육 공공데이터 검증 룰 생성 AI야.
+사용자가 자연어로 검증 조건을 설명하면:
+1. 조건을 해석해서 "interpretation" 키로 설명
+2. Python 함수 코드를 "code" 키로 생성 (pandas DataFrame 'df' 사용)
+3. 실제 데이터 컬럼: {cols[:30]}
+4. 샘플 데이터: {sample}
+
+사용자 질문: {req.query}
+
+반드시 아래 JSON 형식으로만 응답:
+{{
+  "interpretation": "사용자 조건 해석 (한국어, 2~3문장)",
+  "code": "pandas로 df를 필터링하는 Python 코드 (result_df 변수에 결과 저장)",
+  "columns_used": ["사용한 컬럼명들"]
+}}
+JSON만 출력하고 다른 텍스트는 쓰지 마."""
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
+        text = response.text.strip()
+
+        # JSON 파싱
+        import json as _json
+        # 코드블록 마커 제거
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            if text.startswith("json"):
+                text = text[4:]
+        text = text.strip()
+
+        try:
+            parsed = _json.loads(text)
+        except:
+            return {"interpretation": "AI 응답을 파싱할 수 없습니다.", "message": text, "results": []}
+
+        interpretation = parsed.get("interpretation", "")
+        code = parsed.get("code", "")
+
+        # 샌드박스 실행
+        results = []
+        if code:
+            try:
+                local_ns = {"df": df.copy(), "pd": pd, "np": __import__("numpy")}
+                exec(code, {"__builtins__": {}}, local_ns)
+                result_df = local_ns.get("result_df", pd.DataFrame())
+
+                if isinstance(result_df, pd.DataFrame) and not result_df.empty:
+                    for _, row in result_df.head(15).iterrows():
+                        results.append({
+                            "school": str(row.get("school_name", "")),
+                            "year": str(row.get("year", "")),
+                            "detail": " · ".join(f"{c}={row[c]}" for c in parsed.get("columns_used", [])[:3] if c in row.index),
+                        })
+            except Exception as e:
+                return {
+                    "interpretation": interpretation,
+                    "code": code,
+                    "results": [],
+                    "message": f"코드 실행 중 오류: {str(e)[:100]}. 조건을 다시 설명해주세요.",
+                }
+
+        return {
+            "interpretation": interpretation,
+            "code": code,
+            "results": results,
+            "message": f"210교 중 {len(results)}교 탐지" if results else "조건에 해당하는 학교가 없습니다.",
+        }
+
+    except Exception as e:
+        return {"error": f"AI 호출 실패: {str(e)[:100]}"}
+
+
 # ── 한국어 명칭 매핑 ──
 
 RULE_NAMES_KO = {
@@ -1469,7 +1566,7 @@ def _build_self_report(detail_result: dict, school_df, full_df, det_cards: list,
 SEOUL_DISTRICTS_25 = [
     "강남", "강동", "강북", "강서", "관악", "광진", "구로", "금천", "노원", "도봉",
     "동대문", "동작", "마포", "서대문", "서초", "성동", "성북", "송파", "양천", "영등포",
-    "용산", "은평", "종로", "중구", "중랑",
+    "용산", "은평", "종로", "중", "중랑",
 ]
 
 

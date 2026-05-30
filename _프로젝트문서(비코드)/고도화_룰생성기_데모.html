@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduData Watch — AI 룰 생성기 (Preview)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --bg:#F8FAFC;--white:#FFFFFF;
+  --border:#E2E8F0;--border-light:#F1F5F9;
+  --text:#0F172A;--text-sub:#475569;--text-muted:#94A3B8;
+  --navy:#0F2A4A;--navy-light:#1E3A5F;
+  --cobalt:#1D4ED8;--cobalt-hover:#1E40AF;--cobalt-light:#DBEAFE;--cobalt-bg:#EFF6FF;
+  --red:#B91C1C;--red-bg:#FEF2F2;
+  --green:#15803D;--green-bg:#F0FDF4;
+  --amber:#B45309;--amber-bg:#FFFBEB;
+  --purple:#7B5EA0;--purple-bg:#F3EEFA;
+  --radius:10px;--radius-sm:6px;
+  --shadow:0 1px 3px rgba(15,42,74,0.05);
+  --shadow-md:0 4px 12px rgba(15,42,74,0.08);
+  --font:'Pretendard Variable','Pretendard',-apple-system,sans-serif;
+  --mono:'JetBrains Mono','D2Coding',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font);color:var(--text);background:var(--bg);min-height:100vh;line-height:1.55;word-break:keep-all}
+
+/* === HEADER === */
+header{background:var(--white);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+.hd-inner{max-width:1320px;margin:0 auto;padding:0 24px;display:flex;align-items:center;height:54px;gap:18px}
+.brand{display:flex;align-items:center;gap:8px}
+.brand-logo{width:28px;height:28px;background:var(--navy);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+.brand-name{font-size:14px;font-weight:800;color:var(--navy);letter-spacing:-0.02em}
+.hd-sep{width:1px;height:20px;background:var(--border)}
+.hd-title{font-size:13px;font-weight:700;color:var(--text-sub)}
+.hd-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.preview-pill{background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:3px 12px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.3px}
+.hd-back{font-size:12px;color:var(--cobalt);font-weight:700;text-decoration:none;padding:5px 10px;border-radius:var(--radius-sm);border:1px solid var(--cobalt-light)}
+.hd-back:hover{background:var(--cobalt-bg)}
+
+/* === PREVIEW BANNER === */
+.preview-banner{background:linear-gradient(135deg,rgba(123,94,160,0.08) 0%,rgba(91,139,160,0.08) 100%);border-bottom:1px solid rgba(123,94,160,0.15)}
+.pb-inner{max-width:1320px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:14px}
+.pb-text{font-size:12px;color:var(--text-sub);line-height:1.55}
+.pb-text b{color:var(--navy);font-weight:700;display:block;margin-bottom:2px;font-size:12.5px}
+
+/* === SEARCH BAR === */
+.search-area{max-width:1320px;margin:0 auto;padding:18px 24px 0}
+.search-label{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:10px}
+.search-row{display:flex;gap:8px}
+.search-input{flex:1;padding:11px 16px;border:2px solid var(--border);border-radius:var(--radius);font:14px var(--font);outline:none;background:var(--white);transition:border-color .15s}
+.search-input:focus{border-color:var(--cobalt)}
+.search-input::placeholder{color:var(--text-muted)}
+.search-btn{padding:0 20px;background:var(--cobalt);color:#fff;border:none;border-radius:var(--radius);font:13px var(--font);font-weight:700;cursor:pointer;white-space:nowrap}
+.search-btn:hover{background:var(--cobalt-hover)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 0}
+.chip{padding:6px 14px;border:1px solid var(--border);border-radius:20px;font-size:12px;font-weight:600;color:var(--text-sub);background:var(--white);cursor:pointer;font-family:var(--font);transition:all .12s;user-select:none}
+.chip:hover{border-color:var(--cobalt);color:var(--cobalt);background:var(--cobalt-bg)}
+.chip.active{background:var(--cobalt);color:#fff;border-color:var(--cobalt)}
+
+/* === 3-COL GRID === */
+.dash{max-width:1320px;margin:0 auto;padding:16px 24px 32px;display:grid;grid-template-columns:250px 1fr 290px;gap:16px;align-items:flex-start}
+
+/* === LEFT PANEL === */
+.left{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:sticky;top:70px}
+.lp-head{padding:12px 16px;border-bottom:1px solid var(--border-light);font-size:11px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:6px}
+.lp-head::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+.lp-section{padding:14px 16px;border-bottom:1px solid var(--border-light)}
+.lp-section:last-child{border-bottom:none}
+.lp-label{font-size:10.5px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}
+.lp-interpret{font-size:12.5px;color:var(--text-sub);line-height:1.6;background:var(--bg);border-radius:var(--radius-sm);padding:10px 12px;border-left:2px solid var(--cobalt)}
+.lp-interpret b{color:var(--navy);font-weight:700}
+
+/* 체크박스 */
+.cb-list{display:flex;flex-direction:column;gap:4px}
+.cb-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;color:var(--text-sub);cursor:pointer}
+.cb-item input{accent-color:var(--cobalt);width:14px;height:14px}
+.cb-item.checked{color:var(--navy);font-weight:600}
+.cb-item code{font-family:var(--mono);font-size:10px;color:var(--cobalt);background:var(--cobalt-bg);padding:0 4px;border-radius:2px;margin-left:4px}
+
+/* 슬라이더 */
+.slider-group{margin-bottom:10px}
+.slider-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.slider-label{font-size:11px;font-weight:700;color:var(--text-sub)}
+.slider-val{font-size:12px;font-weight:800;color:var(--cobalt);font-variant-numeric:tabular-nums;background:var(--cobalt-bg);padding:1px 7px;border-radius:3px}
+.slider-group input[type=range]{width:100%;accent-color:var(--cobalt);height:4px}
+
+/* 적용 버튼 */
+.apply-section{padding:12px 16px;border-top:1px solid var(--border-light);background:var(--bg)}
+.btn-apply{width:100%;padding:10px;background:var(--cobalt);color:#fff;border:none;border-radius:var(--radius-sm);font:13px var(--font);font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-apply:hover{background:var(--cobalt-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.btn-apply:active{transform:translateY(0)}
+.btn-apply.applied{background:var(--green);pointer-events:none}
+.btn-apply.applied::after{content:'';display:inline-block}
+.apply-hint{font-size:10px;color:var(--text-muted);text-align:center;margin-top:5px}
+.slider-changed{position:relative}
+.slider-changed::after{content:'';position:absolute;top:2px;right:-8px;width:6px;height:6px;border-radius:50%;background:var(--amber)}
+
+/* 슬라이더 + 텍스트 겸용 */
+.slider-input-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+.slider-input-row input[type=range]{flex:1;accent-color:var(--cobalt);height:4px}
+.slider-text{width:52px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font:12px var(--font);text-align:center;color:var(--cobalt);font-weight:700;outline:none;font-variant-numeric:tabular-nums}
+.slider-text:focus{border-color:var(--cobalt);background:var(--cobalt-bg)}
+
+/* 우측 안내 문구 */
+.rp-overlap-note{padding:8px 12px;background:var(--amber-bg);border-top:1px solid #FDE68A;font-size:11px;color:#7A3F00;line-height:1.5;display:flex;align-items:flex-start;gap:6px;flex-shrink:0}
+.overlap-note-icon{font-size:13px;flex-shrink:0;margin-top:1px}
+
+/* 토스트 알림 */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:12px 24px;border-radius:var(--radius);font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(15,42,74,0.2);z-index:9999;opacity:0;transition:all .3s;pointer-events:none;display:flex;align-items:center;gap:8px}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast-icon{font-size:16px}
+
+/* 참고 컬럼 */
+.col-tags{display:flex;flex-wrap:wrap;gap:4px}
+.col-tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg);border:1px solid var(--border-light);color:var(--text-sub)}
+
+/* === CENTER PANEL === */
+.center{min-width:0}
+
+/* 요약 카드 */
+.summary-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.sc{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:18px 16px;text-align:center;position:relative;overflow:hidden}
+.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.sc.sc-total::before{background:var(--cobalt)}
+.sc.sc-dup::before{background:#6366F1}
+.sc.sc-new::before{background:#059669}
+.sc-num{font-size:32px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+.sc.sc-total .sc-num{color:var(--cobalt)}
+.sc.sc-dup .sc-num{color:#6366F1}
+.sc.sc-new .sc-num{color:#059669}
+.sc-label{font-size:11px;font-weight:700;color:var(--text-sub);margin-top:6px}
+.sc-detail{font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.4}
+
+/* 조건 시각화 — 개선 */
+.condition-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:14px;position:relative;overflow:hidden}
+.condition-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--cobalt),#5B8BA0,var(--cobalt))}
+.cc-title{font-size:13px;font-weight:800;color:var(--navy);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.cc-title .ai-tag{background:linear-gradient(135deg,#7B5EA0,#5B8BA0);color:#fff;padding:3px 10px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:0.3px}
+.cc-subtitle{font-size:11px;color:var(--text-muted);font-weight:600;margin-left:auto}
+.condition-flow{display:flex;align-items:stretch;gap:0;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border)}
+.cond-block{flex:1;padding:16px 18px;font-size:13px;font-weight:700;display:flex;flex-direction:column;gap:6px;min-width:140px}
+.cond-block .cond-label{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;opacity:0.7}
+.cond-block .cond-value{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+.cond-block .cond-desc{font-size:11px;font-weight:600;opacity:0.7;margin-top:2px}
+.cond-block.primary{background:linear-gradient(135deg,var(--cobalt-bg) 0%,#DBEAFE 100%);color:var(--cobalt);border-right:1px solid var(--border)}
+.cond-block.secondary{background:var(--bg);color:var(--navy)}
+.cond-op{display:flex;align-items:center;justify-content:center;padding:0 14px;background:var(--white);font-size:11px;font-weight:800;color:var(--text-muted);letter-spacing:0.08em;border-left:1px solid var(--border);border-right:1px solid var(--border);flex-shrink:0}
+.cond-meta{display:flex;gap:10px;margin-top:12px}
+.cond-meta-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-sub)}
+.cond-meta-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cond-meta-dot.dot-primary{background:var(--cobalt)}
+.cond-meta-dot.dot-secondary{background:var(--navy)}
+
+/* 중복 체크 — 개선 */
+.overlap-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
+.overlap-title{font-size:12px;font-weight:800;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.overlap-title::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+.overlap-section{margin-bottom:12px}
+.overlap-section:last-child{margin-bottom:0}
+.overlap-section-h{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.overlap-section-h.dup{color:#6366F1}
+.overlap-section-h.new{color:var(--cobalt)}
+.overlap-section-h .osh-dot{width:7px;height:7px;border-radius:50%}
+.overlap-section-h.dup .osh-dot{background:#6366F1}
+.overlap-section-h.new .osh-dot{background:var(--cobalt)}
+.overlap-item{background:#F5F3FF;border:1px solid #E0E0F7;border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:6px}
+.overlap-item.new-item{background:var(--cobalt-bg);border-color:var(--cobalt-light)}
+.oi-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.oi-rule{font-size:12px;font-weight:800;color:#4338CA}
+.oi-rule code{font-family:var(--mono);font-size:10px;background:#EDE9FE;padding:1px 5px;border-radius:3px;color:#6366F1;margin-left:4px}
+.new-item .oi-rule{color:var(--cobalt)}
+.new-item .oi-rule code{background:var(--cobalt-bg);color:var(--cobalt)}
+.oi-count{font-size:11px;font-weight:700;color:#6366F1;background:#EDE9FE;padding:2px 8px;border-radius:10px}
+.new-item .oi-count{color:var(--cobalt);background:#DBEAFE}
+.oi-detail{font-size:11.5px;color:var(--text-sub);line-height:1.55}
+.oi-detail b{color:var(--text);font-weight:700}
+.oi-cols{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+.oi-col{font-family:var(--mono);font-size:9.5px;padding:1px 6px;border-radius:3px;background:var(--bg);border:1px solid var(--border-light);color:var(--text-sub)}
+.overlap-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.os-card{padding:10px;border-radius:var(--radius-sm);text-align:center}
+.os-card.dup-card{background:#F5F3FF;border:1px solid #E0E0F7}
+.os-card.new-card{background:var(--cobalt-bg);border:1px solid var(--cobalt-light)}
+.os-num{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+.os-card.dup-card .os-num{color:#6366F1}
+.os-card.new-card .os-num{color:var(--cobalt)}
+.os-label{font-size:10px;font-weight:700;color:var(--text-muted);margin-top:3px}
+.overlap-full{padding:12px 16px;background:#F5F3FF;border:1px solid #E0E0F7;border-left:3px solid #6366F1;border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12px;color:#4338CA;font-weight:700;line-height:1.6}
+
+/* 코드 접기/펼치기 */
+.code-toggle{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.code-toggle-head{padding:10px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:var(--cobalt);user-select:none}
+.code-toggle-head:hover{background:var(--bg)}
+.code-toggle-head .arrow{transition:transform .15s;font-size:10px}
+.code-toggle.open .arrow{transform:rotate(90deg)}
+.code-body{display:none;border-top:1px solid var(--border-light)}
+.code-toggle.open .code-body{display:block}
+.code-block{background:#1E293B;color:#E2E8F0;padding:16px 20px;font-family:var(--mono);font-size:11.5px;line-height:1.7;overflow-x:auto;margin:0}
+.code-block .kw{color:#93C5FD}.code-block .fn{color:#FDE68A}.code-block .cm{color:#64748B}.code-block .st{color:#86EFAC}.code-block .num{color:#FDA4AF}
+
+/* === RIGHT PANEL === */
+.right{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:sticky;top:70px;max-height:calc(100vh - 86px);display:flex;flex-direction:column}
+.rp-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.rp-head h3{font-size:12px;font-weight:800;color:var(--navy);display:flex;align-items:center;gap:6px}
+.rp-head h3::before{content:'';width:3px;height:11px;background:var(--cobalt);border-radius:2px}
+.rp-count{font-size:11px;color:var(--text-muted);font-weight:700}
+.rp-list{flex:1;overflow-y:auto;padding:6px 0}
+.rp-item{padding:12px 16px;border-bottom:1px solid var(--border-light);cursor:default;transition:background .08s}
+.rp-item:last-child{border-bottom:none}
+.rp-item:hover{background:var(--bg)}
+.rp-item.overlap{opacity:0.55}
+.rp-rank{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.rp-num{width:22px;height:22px;border-radius:50%;background:var(--cobalt);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex-shrink:0}
+.rp-item.overlap .rp-num{background:var(--text-muted)}
+.rp-school{font-size:13px;font-weight:700;color:var(--text)}
+.rp-item.overlap .rp-school{text-decoration:line-through;color:var(--text-muted)}
+.rp-year{font-size:10px;font-weight:700;color:var(--text-muted);background:var(--bg);padding:1px 6px;border-radius:3px;margin-left:6px}
+.rp-detail{font-size:11.5px;color:var(--text-sub);margin-top:4px;padding-left:30px;line-height:1.5}
+.rp-detail b{color:var(--navy);font-weight:700;font-variant-numeric:tabular-nums}
+.rp-overlap-tag{display:inline-block;font-size:9.5px;font-weight:800;color:var(--amber);background:var(--amber-bg);border:1px solid #FDE68A;padding:1px 6px;border-radius:3px;margin-left:6px}
+.rp-footer{padding:12px 16px;border-top:1px solid var(--border);background:var(--bg);flex-shrink:0}
+.rp-stat{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
+.rp-stat-label{color:var(--text-sub);font-weight:600}
+.rp-stat-val{font-weight:800;font-variant-numeric:tabular-nums}
+
+/* 우측 통계 미니 섹션 */
+.rp-stats-section{padding:10px 16px;border-top:1px solid var(--border-light);flex-shrink:0}
+.rp-stats-title{font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px}
+.rp-mini-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px}
+.rp-mini{text-align:center;padding:6px 4px;background:var(--bg);border-radius:4px;border:1px solid var(--border-light)}
+.rp-mini-num{font-size:14px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1.2}
+.rp-mini-num.zero{color:var(--text-muted)}
+.rp-mini-label{font-size:9.5px;color:var(--text-muted);font-weight:600;margin-top:1px}
+.rp-dist-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:11.5px}
+.rp-dist-name{color:var(--text-sub);font-weight:600}
+.rp-dist-bar-wrap{flex:1;margin:0 8px;height:4px;background:var(--border-light);border-radius:2px;overflow:hidden}
+.rp-dist-bar{height:100%;background:var(--cobalt);border-radius:2px;transition:width .3s}
+.rp-dist-count{font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;min-width:20px;text-align:right;font-size:11px}
+.rp-range{display:flex;justify-content:space-between;align-items:baseline;padding:4px 8px;background:var(--bg);border-radius:4px;margin-top:4px;font-size:11px}
+.rp-range-label{color:var(--text-muted);font-weight:600}
+.rp-range-val{font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums}
+.rp-range-avg{font-weight:700;color:var(--cobalt)}
+
+/* === BOTTOM BAR === */
+.bottom-bar{max-width:1320px;margin:0 auto;padding:0 24px 32px;display:flex;justify-content:flex-end;gap:10px}
+.btn{padding:10px 24px;border-radius:var(--radius-sm);font:13px var(--font);font-weight:700;cursor:pointer;border:none;transition:all .12s}
+.btn-ghost{background:var(--white);color:var(--text-sub);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--cobalt);color:var(--cobalt)}
+.btn-primary{background:var(--cobalt);color:#fff}
+.btn-primary:hover{background:var(--cobalt-hover)}
+.btn-disabled{background:var(--text-muted);color:#fff;cursor:not-allowed;opacity:0.5}
+
+/* === EMPTY STATE === */
+.empty{padding:60px 20px;text-align:center;color:var(--text-muted);font-size:13px}
+.empty-icon{font-size:32px;margin-bottom:12px;opacity:0.4}
+.empty-sub{font-size:11px;margin-top:6px}
+
+/* === ANIMATION === */
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeUp .35s ease-out both}
+.delay-1{animation-delay:.15s}
+.delay-2{animation-delay:.3s}
+.delay-3{animation-delay:.45s}
+
+/* === RESPONSIVE === */
+@media(max-width:1100px){
+  .dash{grid-template-columns:220px 1fr 260px}
+}
+@media(max-width:900px){
+  .dash{grid-template-columns:1fr;gap:14px}
+  .left,.right{position:static;max-height:none}
+  .summary-cards{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:600px){
+  .summary-cards{grid-template-columns:1fr}
+  .condition-flow{flex-direction:column}
+  .search-row{flex-direction:column}
+  .search-btn{padding:10px}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="hd-inner">
+    <div class="brand">
+      <div class="brand-logo">E</div>
+      <div class="brand-name">EduData Watch</div>
+    </div>
+    <div class="hd-sep"></div>
+    <div class="hd-title">AI 룰 생성기</div>
+    <div class="hd-right">
+      <span class="preview-pill">Preview</span>
+      <a href="#" class="hd-back" onclick="event.preventDefault()">← 대시보드로</a>
+    </div>
+  </div>
+</header>
+
+<!-- PREVIEW BANNER -->
+<div class="preview-banner">
+  <div class="pb-inner">
+    <span class="preview-pill" style="font-size:11px;padding:4px 14px">Preview</span>
+    <div class="pb-text">
+      <b>이 화면은 향후 구현 예정인 기능의 미리보기입니다.</b>
+      AI가 자연어 조건을 해석하여 검증 룰을 자동 생성하고, 기존 룰과의 중복 여부를 확인합니다. 현재는 3개의 시나리오로 작동 방식을 체험할 수 있습니다.
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH AREA -->
+<div class="search-area">
+  <div class="search-label">어떤 이상을 찾고 싶으신가요?</div>
+  <div class="search-row">
+    <input type="text" class="search-input" id="searchInput" placeholder="예: 학생수는 줄었는데 교원은 그대로인 학교">
+    <button class="search-btn" onclick="runSearch()">생성</button>
+  </div>
+  <div class="chips">
+    <button class="chip" onclick="pickChip(0,this)">학생수 급감 + 교원 유지</button>
+    <button class="chip" onclick="pickChip(1,this)">급식비만 급등</button>
+    <button class="chip" onclick="pickChip(2,this)">3년 연속 같은 값</button>
+  </div>
+</div>
+
+<!-- 3-COL DASHBOARD -->
+<div class="dash" id="dashArea" style="display:none">
+
+  <!-- LEFT: 조건 설정 -->
+  <aside class="left fade-in">
+    <div class="lp-head">AI 해석 결과</div>
+
+    <div class="lp-section">
+      <div class="lp-label">AI가 이해한 조건</div>
+      <div class="lp-interpret" id="lpInterpret"></div>
+    </div>
+
+    <div class="lp-section">
+      <div class="lp-label">대상 지표</div>
+      <div class="cb-list" id="lpIndicators"></div>
+    </div>
+
+    <div class="lp-section">
+      <div class="lp-label">임계값 조정</div>
+      <div id="lpThresholds"></div>
+    </div>
+
+    <div class="lp-section">
+      <div class="lp-label">참고 컬럼</div>
+      <div class="col-tags" id="lpColumns"></div>
+    </div>
+
+    <div class="apply-section" id="applySection" style="display:none">
+      <button class="btn-apply" id="btnApply" onclick="applyFilters()">조건 적용</button>
+      <div class="apply-hint" id="applyHint">임계값을 조정한 뒤 눌러주세요</div>
+    </div>
+  </aside>
+
+  <!-- CENTER: 요약 + 조건 시각화 -->
+  <section class="center">
+    <!-- 요약 카드 -->
+    <div class="summary-cards fade-in delay-1" id="summaryCards"></div>
+
+    <!-- 조건 시각화 -->
+    <div class="condition-card fade-in delay-1">
+      <div class="cc-title">
+        <span class="ai-tag">AI</span> 생성된 검증 조건
+        <span class="cc-subtitle" id="ccRisk"></span>
+      </div>
+      <div class="condition-flow" id="conditionFlow"></div>
+      <div class="cond-meta" id="condMeta"></div>
+    </div>
+
+    <!-- 중복 체크 -->
+    <div class="overlap-card fade-in delay-2" id="overlapCard"></div>
+
+    <!-- 코드 접기/펼치기 -->
+    <div class="code-toggle fade-in delay-3" id="codeToggle">
+      <div class="code-toggle-head" onclick="toggleCode()">
+        <span>생성된 Python 코드 보기</span>
+        <span class="arrow">&#9654;</span>
+      </div>
+      <div class="code-body">
+        <pre class="code-block" id="codeBlock"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: 탐지 결과 -->
+  <aside class="right fade-in delay-2">
+    <div class="rp-head">
+      <h3>탐지 학교</h3>
+      <span class="rp-count" id="rpCount"></span>
+    </div>
+    <div class="rp-list" id="rpList"></div>
+    <div class="rp-stats-section" id="rpStats" style="display:none"></div>
+    <div class="rp-overlap-note" id="rpOverlapNote" style="display:none">
+      <span class="overlap-note-icon">&#9888;</span>
+      <span>가운뎃줄이 그어진 학교는 기존 룰이 이미 탐지하고 있어, 신규 룰에서는 탐지를 제외합니다.</span>
+    </div>
+    <div class="rp-footer" id="rpFooter"></div>
+  </aside>
+
+</div>
+
+<!-- EMPTY STATE (초기) -->
+<div class="dash" id="emptyState">
+  <div style="grid-column:1/-1">
+    <div class="empty">
+      <div class="empty-icon">&#128270;</div>
+      위의 추천 조건을 클릭하거나, 직접 입력해보세요.<br>
+      AI가 조건을 해석하고 42개교에 적용한 결과를 보여줍니다.
+      <div class="empty-sub">하드코딩된 3개 시나리오로 작동 방식을 미리 확인할 수 있습니다.</div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar" id="bottomBar" style="display:none">
+  <button class="btn btn-ghost" onclick="resetAll()">초기화</button>
+  <button class="btn btn-primary" onclick="registerRule()">룰 등록</button>
+</div>
+
+<!-- 토스트 알림 -->
+<div class="toast" id="toast"><span class="toast-icon"></span><span id="toastMsg"></span></div>
+
+<script>
+const DATA = [
+  {
+    query: "학생수는 줄었는데 교원은 그대로인 학교",
+    interpret: "<b>학생수</b>가 전년 대비 <b>10% 이상 감소</b>했는데, <b>교원수</b>는 <b>5% 이내</b>로 거의 변동이 없는 학교를 찾습니다.",
+    indicators: [
+      {name:"학생수",col:"student_count",checked:true},
+      {name:"교원수",col:"teacher_count",checked:true},
+      {name:"학급수",col:"class_count",checked:false},
+      {name:"급식비",col:"meal_cost_total",checked:false}
+    ],
+    thresholds: [
+      {label:"학생 감소 기준",id:"th0",min:-30,max:-5,val:-10,unit:"%"},
+      {label:"교원 안정 범위",id:"th1",min:1,max:15,val:5,unit:"%"}
+    ],
+    columns: ["student_count","teacher_count","student_yoy","teacher_yoy"],
+    conditions: [
+      {label:"주 조건",value:"학생수 전년 대비 10% 이상 감소",desc:"작년보다 학생이 얼마나 줄었는지",type:"primary",thIdx:0},
+      {op:"AND"},
+      {label:"보조 조건",value:"교원수 변동 5% 이내",desc:"교원수가 크게 안 변했는지",type:"secondary",thIdx:1}
+    ],
+    altResults: {
+      "-15/5": [{rank:1,school:"수락고",year:2024,metrics:["학생 <b>-12.3%</b>","교원 <b>+1.2%</b>"],overlap:null},{rank:2,school:"불암고",year:2024,metrics:["학생 <b>-10.5%</b>","교원 <b>+3.4%</b>"],overlap:"B1-2"},{rank:3,school:"상계고",year:2025,metrics:["학생 <b>-11.8%</b>","교원 <b>-2.1%</b>"],overlap:"B1-2"},{rank:4,school:"월계고",year:2025,metrics:["학생 <b>-15.2%</b>","교원 <b>+0.8%</b>"],overlap:null}],
+      "-5/5": [{rank:1,school:"수락고",year:2024,metrics:["학생 <b>-12.3%</b>","교원 <b>+1.2%</b>"],overlap:null},{rank:2,school:"상계고",year:2025,metrics:["학생 <b>-11.8%</b>","교원 <b>-2.1%</b>"],overlap:"B1-2"},{rank:3,school:"불암고",year:2024,metrics:["학생 <b>-10.5%</b>","교원 <b>+3.4%</b>"],overlap:"B1-2"},{rank:4,school:"노원고",year:2024,metrics:["학생 <b>-8.7%</b>","교원 <b>-1.5%</b>"],overlap:null},{rank:5,school:"혜성여고",year:2025,metrics:["학생 <b>-7.2%</b>","교원 <b>+2.8%</b>"],overlap:null},{rank:6,school:"청원여고",year:2024,metrics:["학생 <b>-6.1%</b>","교원 <b>-0.9%</b>"],overlap:null}],
+      "-10/10": [{rank:1,school:"수락고",year:2024,metrics:["학생 <b>-12.3%</b>","교원 <b>+1.2%</b>"],overlap:null},{rank:2,school:"상계고",year:2025,metrics:["학생 <b>-11.8%</b>","교원 <b>-2.1%</b>"],overlap:"B1-2"},{rank:3,school:"불암고",year:2024,metrics:["학생 <b>-10.5%</b>","교원 <b>+3.4%</b>"],overlap:"B1-2"},{rank:4,school:"대진고",year:2025,metrics:["학생 <b>-10.2%</b>","교원 <b>+8.1%</b>"],overlap:null}]
+    },
+    code: `<span class="cm"># AI 생성 룰: 학생 급감 + 교원 유지</span>\n<span class="kw">def</span> <span class="fn">check_student_drop_teacher_stable</span>(row, prev):\n    student_yoy = (row[<span class="st">'student_count'</span>] - prev[<span class="st">'student_count'</span>]) \\\n                  / prev[<span class="st">'student_count'</span>] * <span class="num">100</span>\n    teacher_yoy = (row[<span class="st">'teacher_count'</span>] - prev[<span class="st">'teacher_count'</span>]) \\\n                  / prev[<span class="st">'teacher_count'</span>] * <span class="num">100</span>\n\n    <span class="kw">return</span> student_yoy < <span class="num">-10</span> <span class="kw">and</span> abs(teacher_yoy) < <span class="num">5</span>`,
+    results: [
+      {rank:1,school:"수락고",year:2024,metrics:["학생 <b>-12.3%</b>","교원 <b>+1.2%</b>"],overlap:null},
+      {rank:2,school:"상계고",year:2025,metrics:["학생 <b>-11.8%</b>","교원 <b>-2.1%</b>"],overlap:"B1-2"},
+      {rank:3,school:"불암고",year:2024,metrics:["학생 <b>-10.5%</b>","교원 <b>+3.4%</b>"],overlap:"B1-2"}
+    ],
+    overlapRules: [{rule:"B1-2",name:"학생·학급·교원 급변동(단년)",cols:["student_count","student_yoy"],reason:"학생수 전년 대비 10%+ 변동을 동일 컬럼·동일 임계로 탐지",count:2}],
+    pureNewDetail: [{school:"수락고",year:2024,why:"B1-2는 학생수만 보지만, 이 룰은 <b>교원수 안정</b>이라는 추가 조건이 있어 더 구체적인 패턴을 잡아냄"}],
+    pureNew: 1,
+    riskLevel: 3,
+    riskName: "자원 배분",
+    stats: {
+      years: {2023:0, 2024:2, 2025:1},
+      districts: {"노원":2, "관악":1, "강남":0},
+      range: {metric:"학생수 변동률", min:"-12.3%", max:"-10.5%", avg:"-11.5%"}
+    }
+  },
+  {
+    query: "학생수는 안 변했는데 급식비만 갑자기 오른 학교",
+    interpret: "<b>급식비</b>가 전년 대비 <b>20% 이상 증가</b>했는데, <b>학생수</b>는 <b>5% 이내</b>로 안정적인 학교를 찾습니다.",
+    indicators: [
+      {name:"학생수",col:"student_count",checked:true},
+      {name:"급식비",col:"meal_cost_total",checked:true},
+      {name:"교원수",col:"teacher_count",checked:false},
+      {name:"학급수",col:"class_count",checked:false}
+    ],
+    thresholds: [
+      {label:"급식비 증가 기준",id:"th0",min:10,max:50,val:20,unit:"%"},
+      {label:"학생 안정 범위",id:"th1",min:1,max:15,val:5,unit:"%"}
+    ],
+    columns: ["meal_cost_total","student_count","meal_yoy","student_yoy"],
+    conditions: [
+      {label:"주 조건",value:"급식비 전년 대비 20% 이상 증가",desc:"작년보다 급식비가 얼마나 올랐는지",type:"primary",thIdx:0},
+      {op:"AND"},
+      {label:"보조 조건",value:"학생수 변동 5% 이내",desc:"학생수가 크게 안 변했는지",type:"secondary",thIdx:1}
+    ],
+    code: `<span class="cm"># AI 생성 룰: 급식비 급등 + 학생 안정</span>\n<span class="kw">def</span> <span class="fn">check_meal_surge_student_stable</span>(row, prev):\n    meal_yoy = (row[<span class="st">'meal_cost_total'</span>] - prev[<span class="st">'meal_cost_total'</span>]) \\\n               / prev[<span class="st">'meal_cost_total'</span>] * <span class="num">100</span>\n    student_yoy = (row[<span class="st">'student_count'</span>] - prev[<span class="st">'student_count'</span>]) \\\n                  / prev[<span class="st">'student_count'</span>] * <span class="num">100</span>\n\n    <span class="kw">return</span> meal_yoy > <span class="num">20</span> <span class="kw">and</span> abs(student_yoy) < <span class="num">5</span>`,
+    results: [
+      {rank:1,school:"대진여고",year:2025,metrics:["급식비 <b>+87.1%</b>","학생 <b>-3.2%</b>"],overlap:null},
+      {rank:2,school:"영동고",year:2024,metrics:["급식비 <b>+34.2%</b>","학생 <b>+1.8%</b>"],overlap:null},
+      {rank:3,school:"서울세종고",year:2025,metrics:["급식비 <b>+28.6%</b>","학생 <b>-0.5%</b>"],overlap:"C2-3"},
+      {rank:4,school:"인헌고",year:2024,metrics:["급식비 <b>+22.1%</b>","학생 <b>+2.3%</b>"],overlap:"C2-3"}
+    ],
+    overlapRules: [{rule:"C2-3",name:"급식비 변동",cols:["meal_cost_total","student_count"],reason:"급식비 전년 대비 10%+ 변동을 동일 컬럼으로 탐지",count:2}],
+    pureNewDetail: [
+      {school:"대진여고",year:2025,why:"급식비 +87.1%로 C2-3 임계(10%)를 훨씬 초과하지만, C2-3는 <b>학생수 안정 조건</b>이 없어 다른 맥락"},
+      {school:"영동고",year:2024,why:"급식비 +34.2%이지만 C2-3의 탐지 범위 밖 (학생수 조건 차이)"}
+    ],
+    pureNew: 2,
+    riskLevel: 3,
+    riskName: "재정 연동",
+    stats: {
+      years: {2023:0, 2024:2, 2025:2},
+      districts: {"노원":0, "관악":1, "강남":3},
+      range: {metric:"급식비 변동률", min:"+22.1%", max:"+87.1%", avg:"+43.0%"}
+    }
+  },
+  {
+    query: "어떤 항목이든 3년 연속 정확히 같은 값인 학교",
+    interpret: "모든 수치 항목에서 <b>3년 연속 정확히 동일한 수치</b>가 반복되는 경우를 찾습니다. 소규모 정수(0~5)와 비율값 100은 제외합니다.",
+    indicators: [
+      {name:"전체 수치 항목",col:"*",checked:true}
+    ],
+    thresholds: [],
+    columns: ["student_count","teacher_count","class_count","budget_revenue","meal_cost_total","graduation_rate"],
+    conditions: [
+      {label:"주 조건",value:"2023~2025년 값이 전부 같음",desc:"3년 연속 정확히 동일한 수치인지 확인",type:"primary"},
+      {op:"AND"},
+      {label:"필터",value:"5 이하 소규모 값 제외",desc:"1~5명 같은 소규모 정수는 자연스러운 정체이므로 제외",type:"secondary"}
+    ],
+    code: `<span class="cm"># AI 생성 룰: 3년 동일값 반복</span>\n<span class="kw">def</span> <span class="fn">check_three_year_same</span>(group, col):\n    vals = group[col].values[-<span class="num">3</span>:]\n    <span class="kw">if</span> len(vals) < <span class="num">3</span>:\n        <span class="kw">return</span> <span class="num">False</span>\n    <span class="kw">return</span> vals[<span class="num">0</span>] == vals[<span class="num">1</span>] == vals[<span class="num">2</span>] \\\n           <span class="kw">and</span> vals[<span class="num">0</span>] > <span class="num">5</span>`,
+    results: [],
+    overlapRules: [{rule:"E2-2",name:"3년 동일값 반복",cols:["student_count","teacher_count","budget_revenue","meal_cost_total"],reason:"동일한 조건(3년 연속 같은 수치 + 노이즈 필터)으로 이미 14건 탐지 중",count:"전체"}],
+    pureNewDetail: [],
+    pureNew: 0,
+    riskLevel: 2,
+    riskName: "미갱신 의심",
+    stats: null,
+    fullOverlapMsg: "기존 E2-2(3년 동일값 반복)와 조건이 완전히 동일합니다. 이미 14건을 탐지 중이므로 신규 룰 등록이 불필요합니다."
+  }
+];
+
+let current = -1;
+
+function pickChip(idx, el){
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('searchInput').value = DATA[idx].query;
+  render(idx);
+}
+
+function runSearch(){
+  const q = document.getElementById('searchInput').value.trim();
+  if(!q) return;
+  // 하드코딩 매칭
+  const idx = DATA.findIndex(d=>q.includes(d.query.slice(0,6)));
+  if(idx>=0) render(idx);
+}
+
+function render(idx){
+  current = idx;
+  const d = DATA[idx];
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('dashArea').style.display='grid';
+  document.getElementById('bottomBar').style.display='flex';
+
+  // LEFT
+  document.getElementById('lpInterpret').innerHTML = d.interpret;
+
+  let cbHtml = '';
+  d.indicators.forEach((ind,i)=>{
+    cbHtml += `<label class="cb-item ${ind.checked?'checked':''}"><input type="checkbox" ${ind.checked?'checked':''} onchange="toggleIndicator(${i},this.checked)"> ${ind.name} <code>${ind.col}</code></label>`;
+  });
+  document.getElementById('lpIndicators').innerHTML = cbHtml;
+
+  let thHtml = '';
+  d.thresholds.forEach(t=>{
+    thHtml += `<div class="slider-group">
+      <div class="slider-head"><span class="slider-label">${t.label}</span></div>
+      <div class="slider-input-row">
+        <input type="range" min="${t.min}" max="${t.max}" value="${t.val}" id="${t.id}" oninput="syncSlider('${t.id}',this.value)">
+        <input type="text" class="slider-text" id="${t.id}t" value="${t.val}${t.unit}" onchange="syncText('${t.id}',this.value,'${t.unit}',${t.min},${t.max})">
+      </div>
+    </div>`;
+  });
+  if(!d.thresholds.length) thHtml = '<div style="font-size:11px;color:var(--text-muted)">이 룰은 임계값 조정 없이 동작합니다.</div>';
+  document.getElementById('lpThresholds').innerHTML = thHtml;
+
+  let colHtml = '';
+  d.columns.forEach(c=>{colHtml += `<span class="col-tag">${c}</span>`;});
+  document.getElementById('lpColumns').innerHTML = colHtml;
+
+  // CENTER: 요약 카드
+  const total = d.results.length;
+  const overlapCount = d.results.filter(r=>r.overlap).length;
+  renderSummaryCards(total, overlapCount, d);
+
+  // CENTER: 조건 시각화
+  renderConditions(d);
+  document.getElementById('ccRisk').textContent = `위험도 ${d.riskLevel} · ${d.riskName}`;
+
+  // 적용 버튼
+  if(d.thresholds.length > 0){
+    document.getElementById('applySection').style.display='block';
+    document.getElementById('btnApply').className='btn-apply';
+    document.getElementById('btnApply').textContent='조건 적용';
+    document.getElementById('applyHint').textContent='임계값을 조정한 뒤 눌러주세요';
+  } else {
+    document.getElementById('applySection').style.display='none';
+  }
+
+  // CENTER: 중복 체크
+  renderOverlap(d);
+}
+
+function renderOverlap(d){
+  let ovHtml = '<div class="overlap-title">기존 룰 중복 체크</div>';
+
+  if(d.fullOverlapMsg){
+    ovHtml += `<div class="overlap-full">${d.fullOverlapMsg}</div>`;
+    d.overlapRules.forEach(r=>{
+      ovHtml += `<div class="overlap-item" style="margin-top:8px">
+        <div class="oi-head"><span class="oi-rule">${r.name} <code>${r.rule}</code></span><span class="oi-count">${r.count} 중복</span></div>
+        <div class="oi-detail">${r.reason}</div>
+        <div class="oi-cols">${r.cols.map(c=>'<span class="oi-col">'+c+'</span>').join('')}</div>
+      </div>`;
+    });
+  } else {
+    // 중복 섹션
+    if(d.overlapRules.length && d.overlapRules[0].count > 0){
+      ovHtml += `<div class="overlap-section"><div class="overlap-section-h dup"><span class="osh-dot"></span>중복 탐지 (기존 룰과 겹침)</div>`;
+      d.overlapRules.forEach(r=>{
+        ovHtml += `<div class="overlap-item">
+          <div class="oi-head"><span class="oi-rule">${r.name} <code>${r.rule}</code></span><span class="oi-count">${r.count}건</span></div>
+          <div class="oi-detail">${r.reason}</div>
+          <div class="oi-cols">${r.cols.map(c=>'<span class="oi-col">'+c+'</span>').join('')}</div>
+        </div>`;
+      });
+      ovHtml += `</div>`;
+    }
+
+    // 신규 섹션
+    if(d.pureNewDetail && d.pureNewDetail.length > 0){
+      ovHtml += `<div class="overlap-section"><div class="overlap-section-h new"><span class="osh-dot"></span>순수 신규 탐지 (기존 룰로 잡을 수 없던 것)</div>`;
+      d.pureNewDetail.forEach(p=>{
+        ovHtml += `<div class="overlap-item new-item">
+          <div class="oi-head"><span class="oi-rule">${p.school} <code>${p.year}</code></span><span class="oi-count">신규</span></div>
+          <div class="oi-detail">${p.why}</div>
+        </div>`;
+      });
+      ovHtml += `</div>`;
+    }
+
+    // 요약 카드
+    const overlapCount = d.overlapRules.reduce((s,r)=>s+(typeof r.count==='number'?r.count:0),0);
+    ovHtml += `<div class="overlap-summary">
+      <div class="os-card dup-card"><div class="os-num">${overlapCount}</div><div class="os-label">기존 룰 중복</div></div>
+      <div class="os-card new-card"><div class="os-num">${d.pureNew}</div><div class="os-label">순수 신규</div></div>
+    </div>`;
+  }
+
+  document.getElementById('overlapCard').innerHTML = ovHtml;
+
+  // CENTER: 코드
+  document.getElementById('codeBlock').innerHTML = d.code;
+  document.getElementById('codeToggle').classList.remove('open');
+
+  // RIGHT: 탐지 학교
+  renderRightPanel(d.results, d);
+}
+
+function renderRightPanel(results, d){
+  const total = results.length;
+  const overlapCount = results.filter(r=>r.overlap).length;
+  const pureNew = total - overlapCount;
+
+  document.getElementById('rpCount').textContent = `${total}건`;
+  let listHtml = '';
+  if(total === 0){
+    listHtml = `<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px">탐지 학교 없음<br><span style="font-size:11px">${d.fullOverlapMsg||''}</span></div>`;
+  } else {
+    results.forEach(r=>{
+      listHtml += `<div class="rp-item ${r.overlap?'overlap':''}">
+        <div class="rp-rank">
+          <div class="rp-num">${r.rank}</div>
+          <span class="rp-school">${r.school}</span>
+          <span class="rp-year">${r.year}</span>
+          ${r.overlap?`<span class="rp-overlap-tag">${r.overlap} 중복</span>`:''}
+        </div>
+        <div class="rp-detail">${r.metrics.join(' / ')}</div>
+      </div>`;
+    });
+  }
+  document.getElementById('rpList').innerHTML = listHtml;
+
+  // 통계 섹션
+  const statsEl = document.getElementById('rpStats');
+  if(d.stats && total > 0){
+    const s = d.stats;
+    const maxDist = Math.max(...Object.values(s.districts));
+    let statsHtml = '';
+
+    // 연도 분포
+    statsHtml += '<div class="rp-stats-title">연도 분포</div>';
+    statsHtml += '<div class="rp-mini-grid">';
+    Object.entries(s.years).forEach(([yr,cnt])=>{
+      statsHtml += `<div class="rp-mini"><div class="rp-mini-num ${cnt===0?'zero':''}">${cnt}</div><div class="rp-mini-label">${yr}</div></div>`;
+    });
+    statsHtml += '</div>';
+
+    // 구별 분포
+    statsHtml += '<div class="rp-stats-title" style="margin-top:8px">구별 분포</div>';
+    Object.entries(s.districts).forEach(([dist,cnt])=>{
+      const pct = maxDist > 0 ? (cnt/maxDist*100) : 0;
+      statsHtml += `<div class="rp-dist-row"><span class="rp-dist-name">${dist}구</span><div class="rp-dist-bar-wrap"><div class="rp-dist-bar" style="width:${pct}%"></div></div><span class="rp-dist-count">${cnt}</span></div>`;
+    });
+
+    // 탐지 수치 범위
+    statsHtml += `<div class="rp-stats-title" style="margin-top:10px">${s.range.metric}</div>`;
+    statsHtml += `<div class="rp-range"><span class="rp-range-label">최소</span><span class="rp-range-val">${s.range.min}</span></div>`;
+    statsHtml += `<div class="rp-range"><span class="rp-range-label">평균</span><span class="rp-range-avg">${s.range.avg}</span></div>`;
+    statsHtml += `<div class="rp-range"><span class="rp-range-label">최대</span><span class="rp-range-val">${s.range.max}</span></div>`;
+
+    statsEl.innerHTML = statsHtml;
+    statsEl.style.display = 'block';
+  } else {
+    statsEl.style.display = 'none';
+  }
+
+  // 중복 안내 문구 표시
+  const noteEl = document.getElementById('rpOverlapNote');
+  noteEl.style.display = overlapCount > 0 ? 'flex' : 'none';
+
+  let footHtml = '';
+  footHtml += `<div class="rp-stat"><span class="rp-stat-label">전체 탐지</span><span class="rp-stat-val" style="color:var(--cobalt)">${total}건</span></div>`;
+  footHtml += `<div class="rp-stat"><span class="rp-stat-label">기존 중복</span><span class="rp-stat-val" style="color:var(--amber)">${overlapCount || (d.fullOverlapMsg?total:0)}건</span></div>`;
+  footHtml += `<div class="rp-stat"><span class="rp-stat-label">순수 신규</span><span class="rp-stat-val" style="color:var(--green)">${pureNew}건</span></div>`;
+  footHtml += `<div class="rp-stat"><span class="rp-stat-label">위험도</span><span class="rp-stat-val">${d.riskLevel} (${d.riskName})</span></div>`;
+  document.getElementById('rpFooter').innerHTML = footHtml;
+}
+
+function renderSummaryCards(total, overlapCount, d){
+  const pureNew = total - overlapCount;
+  const dupDisplay = d.fullOverlapMsg ? '전체' : overlapCount;
+  const dupDetail = d.overlapRules.map(r=>r.name||r.rule).join(', ') || '-';
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="sc sc-total">
+      <div class="sc-num">${total}</div>
+      <div class="sc-label">전체 탐지 학교</div>
+      <div class="sc-detail">42개교에 조건을 적용한 결과</div>
+    </div>
+    <div class="sc sc-dup">
+      <div class="sc-num">${dupDisplay}</div>
+      <div class="sc-label">기존 룰과 겹치는 학교</div>
+      <div class="sc-detail">${dupDetail}에서 이미 탐지 중</div>
+    </div>
+    <div class="sc sc-new">
+      <div class="sc-num">${d.fullOverlapMsg?0:pureNew}</div>
+      <div class="sc-label">이 룰만 잡아내는 학교</div>
+      <div class="sc-detail">기존 룰로는 확인할 수 없었던 것</div>
+    </div>`;
+}
+
+function renderConditions(d, thOverrides){
+  let condHtml = '';
+  d.conditions.forEach(c=>{
+    if(c.op){
+      condHtml += `<div class="cond-op">${c.op}</div>`;
+    } else {
+      let val = c.value;
+      // 임계값 오버라이드 반영
+      if(thOverrides && c.thIdx !== undefined && d.thresholds[c.thIdx]){
+        const th = d.thresholds[c.thIdx];
+        const newVal = thOverrides[c.thIdx];
+        if(c.thIdx === 0){
+          if(newVal < 0) val = val.replace(/-?\d+%/, newVal+'%');
+          else val = val.replace(/\+?\d+%/, '+'+newVal+'%');
+        } else {
+          val = val.replace(/\d+%/, Math.abs(newVal)+'%');
+        }
+      }
+      condHtml += `<div class="cond-block ${c.type}">
+        <div class="cond-label">${c.label}</div>
+        <div class="cond-value">${val}</div>
+        <div class="cond-desc">${c.desc}</div>
+      </div>`;
+    }
+  });
+  document.getElementById('conditionFlow').innerHTML = condHtml;
+
+  // 메타 정보
+  let metaHtml = '';
+  d.conditions.filter(c=>!c.op).forEach(c=>{
+    metaHtml += `<div class="cond-meta-item"><span class="cond-meta-dot dot-${c.type}"></span>${c.label}: ${c.desc}</div>`;
+  });
+  document.getElementById('condMeta').innerHTML = metaHtml;
+}
+
+function applyFilters(){
+  if(current < 0) return;
+  const d = DATA[current];
+  if(!d.thresholds.length) return;
+
+  // 슬라이더 현재 값 읽기
+  const th0 = parseInt(document.getElementById('th0')?.value || d.thresholds[0]?.val);
+  const th1 = parseInt(document.getElementById('th1')?.value || d.thresholds[1]?.val);
+  const key = th0+'/'+th1;
+
+  // AI 해석 업데이트
+  let newInterpret = d.interpret;
+  if(d.thresholds.length >= 2){
+    const origTh0 = d.thresholds[0].val;
+    const origTh1 = d.thresholds[1].val;
+    newInterpret = newInterpret
+      .replace(Math.abs(origTh0)+'% 이상', '<b>'+Math.abs(th0)+'% 이상</b>')
+      .replace(origTh1+'% 이내', '<b>'+Math.abs(th1)+'% 이내</b>');
+  }
+  document.getElementById('lpInterpret').innerHTML = newInterpret;
+
+  // 조건 시각화 업데이트
+  renderConditions(d, [th0, th1]);
+
+  // 결과 업데이트 (altResults에서 가장 가까운 키 찾기)
+  let newResults = d.results; // 기본
+  if(d.altResults){
+    if(d.altResults[key]){
+      newResults = d.altResults[key];
+    } else {
+      // 가장 가까운 임계값 조합 선택
+      let bestKey = null, bestDist = Infinity;
+      Object.keys(d.altResults).forEach(k=>{
+        const [a,b] = k.split('/').map(Number);
+        const dist = Math.abs(a-th0) + Math.abs(b-th1);
+        if(dist < bestDist){bestDist=dist;bestKey=k;}
+      });
+      if(bestKey) newResults = d.altResults[bestKey];
+    }
+  }
+
+  // 결과 렌더
+  const total = newResults.length;
+  const overlapCount = newResults.filter(r=>r.overlap).length;
+  const pureNew = total - overlapCount;
+
+  renderSummaryCards(total, overlapCount, d);
+
+  // 우측 목록
+  renderRightPanel(newResults, d);
+
+  // 버튼 상태 변경
+  const btn = document.getElementById('btnApply');
+  btn.className = 'btn-apply applied';
+  btn.textContent = '적용 완료';
+  document.getElementById('applyHint').textContent = `임계값 ${th0}% / ${Math.abs(th1)}% 기준으로 재탐지됨`;
+
+  // 1.5초 후 버튼 복원
+  setTimeout(()=>{
+    btn.className = 'btn-apply';
+    btn.textContent = '조건 적용';
+  }, 1500);
+}
+
+function toggleIndicator(idx, checked){
+  if(current < 0) return;
+  const d = DATA[current];
+  d.indicators[idx].checked = checked;
+  // 체크박스 라벨 스타일 업데이트
+  const labels = document.querySelectorAll('#lpIndicators .cb-item');
+  labels[idx].classList.toggle('checked', checked);
+  // 참고 컬럼 업데이트
+  const activeCols = d.indicators.filter(i=>i.checked).map(i=>i.col).filter(c=>c!=='*');
+  let colHtml = '';
+  if(activeCols.length > 0){
+    // 관련 컬럼 (원본 + _yoy 파생)
+    const expanded = [];
+    activeCols.forEach(c=>{expanded.push(c); expanded.push(c.replace('_count','_yoy').replace('_total','_yoy'));});
+    expanded.forEach(c=>{colHtml += `<span class="col-tag">${c}</span>`;});
+  } else {
+    d.columns.forEach(c=>{colHtml += `<span class="col-tag">${c}</span>`;});
+  }
+  document.getElementById('lpColumns').innerHTML = colHtml;
+  // 적용 버튼 힌트 변경
+  if(d.thresholds.length > 0){
+    document.getElementById('applyHint').textContent = '지표 또는 임계값을 변경했습니다. 적용 버튼을 눌러주세요.';
+    document.getElementById('btnApply').className = 'btn-apply';
+    document.getElementById('btnApply').textContent = '조건 적용';
+  }
+}
+
+function syncSlider(id, val){
+  document.getElementById(id+'t').value = val + (DATA[current]?.thresholds.find(t=>t.id===id)?.unit||'');
+}
+function syncText(id, raw, unit, min, max){
+  const num = parseInt(raw.replace(/[^-\d]/g,''));
+  if(isNaN(num)) return;
+  const clamped = Math.max(min, Math.min(max, num));
+  document.getElementById(id).value = clamped;
+  document.getElementById(id+'t').value = clamped + unit;
+}
+
+function registerRule(){
+  if(current < 0) return;
+  const d = DATA[current];
+  if(d.fullOverlapMsg){
+    showToast('이미 구현된 룰과 100% 중복되어 등록할 수 없습니다.', 'warn');
+    return;
+  }
+  showToast('룰이 등록되었습니다. 다음 검증 실행 시 적용됩니다.', 'ok');
+}
+
+function showToast(msg, type){
+  const t = document.getElementById('toast');
+  const icon = type==='ok' ? '\u2705' : type==='warn' ? '\u26A0\uFE0F' : '\u2139\uFE0F';
+  document.getElementById('toastMsg').textContent = msg;
+  t.querySelector('.toast-icon').textContent = icon;
+  t.style.background = type==='warn' ? 'var(--amber)' : type==='ok' ? 'var(--green)' : 'var(--navy)';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+function toggleCode(){
+  document.getElementById('codeToggle').classList.toggle('open');
+}
+
+function resetAll(){
+  current = -1;
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  document.getElementById('searchInput').value = '';
+  document.getElementById('dashArea').style.display='none';
+  document.getElementById('bottomBar').style.display='none';
+  document.getElementById('emptyState').style.display='grid';
+}
+</script>
+</body>
+</html>
