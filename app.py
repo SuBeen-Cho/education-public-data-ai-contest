@@ -3,6 +3,7 @@ app.py — FastAPI 메인 서버
 EduData Watch 프로토타입 백엔드
 LLM: Google Gemini 2.5 flash-lite (.env에서 키 로드)
 """
+from __future__ import annotations  # Python 3.9 호환: str | None 류 PEP 604 표기 허용
 
 import os
 import re
@@ -20,7 +21,10 @@ from pydantic import BaseModel
 
 from data_loader import load_and_merge_all, get_column_descriptions
 from rule_engine import RuleEngine, RULE_META
-from priority_scorer import calculate_priority_scores, get_top_n, get_score_distribution
+from priority_scorer import (
+    calculate_priority_scores, get_top_n, get_score_distribution,
+    enrich_with_s_r, filter_active, label_for, LABEL_THRESHOLDS,
+)
 from safe_executor import safe_execute, SecurityError
 
 # .env 로드
@@ -73,6 +77,9 @@ async def lifespan(app: FastAPI):
         df = load_and_merge_all()
         engine = RuleEngine(df)
         detections = engine.run_all()
+        # 점수 계산 입력 정제 — 비활성 룰(예: C1-5) 제외 + s_r 부여(대표 신호·정렬 단일 출처)
+        detections = filter_active(detections)
+        detections = enrich_with_s_r(detections)
         scores = calculate_priority_scores(detections)
 
         # 42교 통일: 검토 신호가 0건인 학교도 0점으로 목록·분포에 포함
@@ -238,7 +245,7 @@ async def dashboard():
             "mapping_note": meta.get("mapping_note", ""),
         })
     # 정렬: 카테고리 코드 → 같은 카테고리 내 (active 먼저, 탐지 많은순, 룰ID 사전순)
-    _STATUS_ORDER = {"active": 0, "needs_mapping": 1, "no_source_confirmed": 2}
+    _STATUS_ORDER = {"active": 0, "needs_mapping": 1, "inactive": 2, "no_source_confirmed": 3}
     rule_dist.sort(key=lambda x: (
         x["category_code"],
         _STATUS_ORDER.get(x["status"], 99),
@@ -261,8 +268,8 @@ async def dashboard():
 
 
 def _rule_status_summary(rule_counts: dict) -> dict:
-    """룰별 상태 요약 — active/needs_mapping/no_source_confirmed 카운트와 표."""
-    by_status = {"active": 0, "needs_mapping": 0, "no_source_confirmed": 0}
+    """룰별 상태 요약 — active/needs_mapping/inactive/no_source_confirmed 카운트와 표."""
+    by_status = {"active": 0, "needs_mapping": 0, "inactive": 0, "no_source_confirmed": 0}
     rows = []
     for rid, meta in RULE_META.items():
         st = meta.get("status", "active")
@@ -505,6 +512,19 @@ async def custom_analysis(req: CustomRequest):
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_explore(req: ChatRequest):
     """자연어 챗봇. 어떤 실패에서도 500 대신 안전한 ChatResponse 반환."""
+    try:
+        return await _chat_explore_impl(req)
+    except Exception as e:
+        # 어떤 단계에서든 예측 못한 예외가 나도 사용자에게 500 노출 금지.
+        # (예: 비교 질의에서 MultiIndex/groupby 결과 직렬화 실패 등)
+        import traceback
+        print(f"[ERROR] /api/chat 미처리 예외: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        _log_route("fallback_help", req.query)
+        return ChatResponse(**_build_fallback_help_response())
+
+
+async def _chat_explore_impl(req: ChatRequest):
     df_full = app_state.get("df", pd.DataFrame())
     scores = app_state.get("scores", pd.DataFrame())
     detections = app_state.get("detections", pd.DataFrame())
@@ -532,12 +552,32 @@ async def chat_explore(req: ChatRequest):
         if hp is not None:
             _log_route("help", req.query)
             return ChatResponse(**hp)
-        # 4) 데이터 범위 밖 (날씨·주식·시간 등 명백한 무관 의도)
+        # 4) 데이터 범위 밖 — 무관 의도(날씨·주식 등)
         rg = _handle_range_guard_query(req.query)
         if rg is not None:
             _log_route("range_guard", req.query)
             return ChatResponse(**rg)
-        # 5) 우선순위/Top/N위 — scores/detections로 직접 응답
+        # 4-1) 범위 밖 — 서울 외 시·도
+        rgeo = _handle_out_of_region(req.query)
+        if rgeo is not None:
+            _log_route("range_geo", req.query)
+            return ChatResponse(**rgeo)
+        # 4-2) 범위 밖 — 학교급 (초·중·특수·대학·특목고)
+        rgrade = _handle_out_of_grade(req.query)
+        if rgrade is not None:
+            _log_route("range_grade", req.query)
+            return ChatResponse(**rgrade)
+        # 5) 정의/설명 (★priority보다 먼저 — "검토 우선도 지수가 뭐야"가 우선순위표로 새지 않게)
+        defn = _handle_definition_query(req.query)
+        if defn is not None:
+            _log_route("definition", req.query)
+            return ChatResponse(**defn)
+        # 5-1) 룰 ID 탐지 조회 — "C5 걸린 학교" 등 (단순 필터만, 조건 붙으면 LLM)
+        rl = _handle_rule_lookup_query(req.query, df_full, scores, detections)
+        if rl is not None:
+            _log_route("rule_lookup", req.query)
+            return ChatResponse(**rl)
+        # 6) 우선순위/Top/N위 — scores/detections로 직접 응답
         pri = _handle_priority_query(req.query, df_full, scores, detections)
         if pri is not None:
             _log_route("priority", req.query)
@@ -566,8 +606,17 @@ async def chat_explore(req: ChatRequest):
             school_name_for_report = str(sn.iloc[0])
 
     # ── 1단계: 분석 계획 ──
+    # rule_lookup 가드는 통과했지만(복합 조건이라) 룰 식별자가 있으면
+    # 그 룰의 detections 컨텍스트를 LLM prompt에 동봉 — 외부 지식 답변 방지.
+    rule_ctx = None
+    if not req.school_code:
+        try:
+            rule_ctx = _extract_rule_context(req.query, df_full, scores, detections)
+        except Exception as e:
+            print(f"[WARN] _extract_rule_context 실패(무시): {e}")
+            rule_ctx = None
     try:
-        plan = _get_analysis_plan(client, req.query, columns_desc, req.history)
+        plan = _get_analysis_plan(client, req.query, columns_desc, req.history, rule_context=rule_ctx)
     except GeminiError as e:
         print(f"[WARN] chat plan Gemini 실패: {e}")
         _log_route("fallback_help", req.query)
@@ -717,9 +766,11 @@ _GREETING_PREFIXES = (
 _THANKS_PREFIXES = (
     "고맙습니다", "고마워요", "고마워", "고맙",
     "감사합니다", "감사해요", "감사",
-    "수고하셨습니다", "수고했어", "수고",
+    "수고하셨습니다", "수고하셨어요", "수고하세요", "수고했어", "수고",
     "잘 가", "잘가", "잘 있어", "안녕히",
     "thank you", "thanks", "thx", "ty",
+    "ㄳ", "ㄱㅅ",
+    "굿굿", "굳굳", "good", "굿",
 )
 _HELP_PHRASES = (
     "넌 누구", "너는 누구", "당신은 누구", "넌 뭐", "너 뭐",
@@ -728,9 +779,19 @@ _HELP_PHRASES = (
     "도움말", "헬프", "help", "사용 방법",
     "어떤 질문", "어떤거 물어", "뭐 물어",
     "넌 뭐야", "너는 뭐야", "정체",
+    # 보강
+    "무슨 서비스", "어떤 서비스", "뭐하는 거", "뭐 하는 거", "뭐 하는거",
+    "이거 뭐", "이거 뭐임", "이게 뭐",
 )
 # 의미 없는 짧은 입력 — 멀티턴 컨텍스트는 안 쓰므로 "?" 단독도 무의미 입력.
-_NOISE_INPUTS = ("ㅋㅋ", "ㅋㅋㅋ", "ㅎㅎ", "ㅎㅎㅎ", "ㅠㅠ", "ㅠ", "ㅗㅜ", "ㅇㅇ", "응", "넵", "넹", "...", "..", ".", "?", "??", "???")
+_NOISE_INPUTS = (
+    "ㅋㅋ", "ㅋㅋㅋ", "ㅎㅎ", "ㅎㅎㅎ", "ㅠㅠ", "ㅠ", "ㅗㅜ",
+    "ㅇㅇ", "응", "넵", "넹",
+    "...", "..", ".", "?", "??", "???",
+    "ㅁㄴㅇ", "ㅁㄴㅇㄹ", "ㄱㄴㄷ",
+    # 키보드 매시 패턴 — 사전에 없는 랜덤 영문/문자열
+    "asdf", "asdfasdf", "qwer", "qwerty", "zxcv", "zxcvbnm", "aaaa", "test", "test123", "1234", "12345",
+)
 
 # 데이터 범위 밖 키워드 — 명백히 공시·교육 데이터와 무관한 질의
 _OUT_OF_SCOPE_KEYWORDS = (
@@ -757,16 +818,26 @@ def _strip_prefixes(q_low: str, prefixes: tuple) -> str:
 
 
 def _is_noise_only(q: str) -> bool:
-    """무의미 입력(이모티콘·자음 반복 등) 단독 여부."""
+    """무의미 입력(이모티콘·자음 반복·랜덤 키보드 매시) 단독 여부."""
     if not q:
         return True
-    if q in _NOISE_INPUTS:
+    if q.lower() in (n.lower() for n in _NOISE_INPUTS):
         return True
     # 한글 자모/문장부호만 있고 의미 있는 글자 없는 경우
     if len(q) <= 3 and not any(c.isalnum() and ord(c) > 127 for c in q) and not any(c.isalnum() and c.isascii() for c in q):
-        # alphanumeric 없음 + 한글 음절(가-힣) 없음 → 의미 X
         if not any('가' <= c <= '힣' for c in q):
             return True
+    # 사전에 없는 랜덤 영문/숫자 단독 (한글 음절 없고 의미 키워드 아닐 때)
+    rest = q.strip().lower()
+    has_korean = any('가' <= c <= '힣' for c in q)
+    if not has_korean and 1 <= len(rest) <= 6 and all(c.isalnum() or c in " " for c in rest):
+        # 이미 greeting/thanks 가드에서 처리되는 것은 미리 거름
+        meaningful = ("hi", "hello", "hey", "ok", "yes", "no",
+                      "thx", "ty", "good", "thanks", "thank you", "help")
+        if rest not in meaningful and not any(rest.startswith(m) for m in meaningful):
+            # 자음/모음만이거나 같은 글자 반복은 노이즈
+            if len(set(rest)) <= 2 or rest in ("asdf", "qwer", "zxcv", "qwerty", "asdfasdf", "qwertyuiop", "test", "test123", "1234", "12345", "123456"):
+                return True
     return False
 
 
@@ -888,7 +959,9 @@ async def chat_route_stats():
     total = sum(ROUTE_COUNTER.values()) or 0
     by_route = dict(sorted(ROUTE_COUNTER.items(), key=lambda kv: -kv[1]))
 
-    pre_llm_routes = ("greeting", "thanks", "help", "priority", "range_guard", "empty_input")
+    pre_llm_routes = ("greeting", "thanks", "help", "priority",
+                      "range_guard", "range_geo", "range_grade",
+                      "definition", "rule_lookup", "empty_input")
     pre_llm = sum(ROUTE_COUNTER.get(r, 0) for r in pre_llm_routes)
 
     llm_post_routes = ("llm", "empty_result", "fallback_help")
@@ -910,9 +983,707 @@ async def chat_route_stats():
     }
 
 
-# ── #6: 우선순위·Top 질의는 LLM 우회, scores/detections로 직접 응답 ──
-_PRIORITY_KEYWORDS = ("우선순위", "가장 높은", "가장 우선", "최우선", "상위", "top", "TOP", "Top", "1위", "검토 우선")
-_DISTRICTS_KO = ("강남", "노원", "관악")
+# ── 우선순위·Top 질의는 LLM 우회, scores/detections로 직접 응답 ──
+_PRIORITY_KEYWORDS = (
+    "우선순위", "가장 높은", "가장 우선", "최우선", "상위",
+    "top", "TOP", "Top", "1위",
+    "검토 우선",
+    # 보강
+    "점수 높은", "점수가 높은", "제일 높은", "제일높은", "최고점", "최고 점수",
+    "젤 높은", "젤높은",
+)
+# 서울 25개 자치구 — 챗봇 필터·범위 가드 공용 단일 출처.
+# ※ '중'·'동'·'강'처럼 짧고 일반어와 겹치는 자치구명은 substring 매칭하지 말 것.
+#   분리: _DISTRICTS_LONG(2자 이상, 안전) vs _DISTRICTS_SHORT(1자, 단어경계 필요).
+_DISTRICTS_LONG = (
+    "강남", "강동", "강북", "강서", "관악", "광진", "구로", "금천",
+    "노원", "도봉", "동대문", "동작", "마포", "서대문", "서초", "성동",
+    "성북", "송파", "양천", "영등포", "용산", "은평", "종로", "중랑",
+)
+# 1자 자치구는 별도 — '~구'·'~구의'·'~ 지역'·'~ 일반고' 형태일 때만 자치구로 본다.
+_DISTRICTS_SHORT = ("중",)
+# 전체 합 — 표시·서울 힌트 등 substring 무관 용도에만 사용.
+_DISTRICTS_KO = _DISTRICTS_LONG + _DISTRICTS_SHORT
+
+
+def _district_in_query(query: str) -> str | None:
+    """쿼리에서 자치구를 정확히 식별. 1자 자치구는 단어경계로 검사.
+    매칭 우선순위: long(substring OK) → short(단어경계).
+    예: '강남구 학교' → '강남' / '중구 학교' → '중' / '전체 중 제일 높은' → None."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    for d in _DISTRICTS_LONG:
+        if d in q:
+            return d
+    # 1자 자치구 — '중' 뒤에 '구·구의·구에서·구만· 지역· 일반고· 학교' 등이 와야 함.
+    # 또는 단독 '중' 으로 '중에서 / 중에 있는 / 중에서만' 등 조사 용법은 자치구 아님.
+    for d in _DISTRICTS_SHORT:
+        # 패턴: '중구' / '중 지역' / '중 일반고' / '중 학교' 만 자치구
+        if re.search(rf"\b{d}구\b", q) or re.search(rf"\b{d}\s*(?:지역|일반고|고등학교)\b", q):
+            return d
+    return None
+
+
+# ── 범위 밖 (지역/학교급) 가드 ──
+# 표본: 서울 25개 자치구 일반고 210교. 그 외 시도·학교급 질의는 안내로 끝.
+# ※ 시·도명은 substring 매칭하지 말 것 — '경기고'의 '경기', '대구고'의 '대구' 오탐.
+#   학교명(메인 DataFrame의 school_name)과 매칭되는 토큰이 있으면 학교 질의로 보고 통과.
+_OUT_OF_REGION_KEYWORDS = (
+    "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+    "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+    "수원", "성남", "고양", "용인", "안양", "안산", "부천", "화성",
+    # 전국 범위 — 서울만 다루는 표본보다 넓음
+    "전국", "전국적",
+)
+# 지역명 뒤에 일반어("학교/고등학교/일반고/도/시/지역/광역시")가 따라올 때만 지역 의도.
+_REGION_TAIL_TOKENS = ("학교", "고등학교", "일반고", "교육청", "지역", "도", "광역시", "특별시", "특별자치도", "특별자치시")
+_SEOUL_HINTS = _DISTRICTS_LONG + _DISTRICTS_SHORT + ("서울",)
+_OUT_OF_GRADE_KEYWORDS = (
+    "초등학교", "초등생", "초딩",
+    "중학교", "중학생", "중딩",
+    "유치원", "어린이집",
+    "특수학교", "대학교", "대학원",
+    # 특수목적 / 자율형 — 일반고 외
+    "특성화고", "마이스터고", "외국어고", "외고", "과학고", "과고",
+    "예술고", "예고", "체육고", "체고", "자사고", "자율형",
+)
+
+
+_SCHOOL_NAME_PARTICLES = ("는", "은", "이", "가", "을", "를", "의", "에", "에서", "에선", "도", "만", "랑", "와", "과", "로", "으로")
+_REGION_PLUS_GO_RE = re.compile(
+    r"(?:" + "|".join(re.escape(k) for k in (
+        "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+        "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+    )) + r")고(?=\s|$|[?!.,]|" + "|".join(re.escape(p) for p in _SCHOOL_NAME_PARTICLES) + r")"
+)
+
+
+def _query_school_in_data(query: str) -> bool:
+    """쿼리에 메인 DataFrame의 실제 학교명(또는 ~고 줄임형)이 있으면 True.
+    표본 안에서 해결 가능한 학교 의도 — priority/rule_lookup 등 표본 기반 응답이 정당."""
+    df = app_state.get("df", pd.DataFrame())
+    if df.empty or "school_name" not in df.columns:
+        return False
+    q = (query or "").strip()
+    if not q:
+        return False
+    for name in df["school_name"].unique():
+        n = str(name)
+        if not n:
+            continue
+        if n in q:
+            return True
+        if n.endswith("등학교"):
+            short = n[:-3]  # '경기고등학교' → '경기고'
+            if short and short in q:
+                return True
+    return False
+
+
+def _looks_like_school_name(query: str) -> bool:
+    """입력에 학교명 패턴이 있으면 True. 두 경로:
+    (1) 메인 DataFrame의 실제 학교명/그 줄임형(~고) 매칭 — 현재 데이터
+    (2) 시·도명+'고' (예: 부산고/대구고/강원고) — 전국 확장 대비 (데이터 없어도 학교 의도)
+    데이터 미로드 상태에서도 (2)는 동작."""
+    q = (query or "").strip()
+    if not q:
+        return False
+    # (2) 시도명+고 패턴 (확장 대비)
+    if _REGION_PLUS_GO_RE.search(q):
+        return True
+    # (1) 메인 DataFrame 학교명 (현재 표본)
+    df = app_state.get("df", pd.DataFrame())
+    if df.empty or "school_name" not in df.columns:
+        return False
+    for name in df["school_name"].unique():
+        n = str(name)
+        if not n:
+            continue
+        if n in q:
+            return True
+        if n.endswith("등학교"):
+            short = n[:-3]  # '경기고등학교' → '경기고'
+            if short and short in q:
+                return True
+    return False
+
+
+def _handle_out_of_region(query: str):
+    """서울 외 시·도명이 학교 일반어와 함께 등장하면 표본 범위 안내.
+    ※ 학교명(known schools)이 있으면 학교 질의로 보고 통과.
+    ※ 시·도 단독 + 학교 일반어가 있을 때만 지역 의도로 본다."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    # 1) 학교명이 있으면 지역 guard 통과 (경기고/대구고 한 버그)
+    if _looks_like_school_name(q):
+        return None
+    # 2) 시·도명 매칭
+    matched = [k for k in _OUT_OF_REGION_KEYWORDS if k in q]
+    if not matched:
+        return None
+    # 3) 서울 힌트가 있으면 지역 guard 통과 (자치구 SHORT은 단어경계로)
+    if any(s in q for s in _DISTRICTS_LONG) or _district_in_query(q) or "서울" in q:
+        return None
+    # 4) 지역 의도 확정 — 시·도명 + 학교 일반어 OR 시·도명 단독(or 단독+1~2 조사).
+    has_region_tail = any(t in q for t in _REGION_TAIL_TOKENS)
+    # 단독 매칭 — q.strip()이 시·도명과 동일하거나 시·도명+1~2자(조사) 정도일 때만.
+    # "부산 보고", "경기 참고" 같은 짧은 일반 문장은 통과.
+    q_stripped = q.strip()
+    is_region_solo = any(
+        q_stripped == m or
+        re.fullmatch(rf"{re.escape(m)}[은는이가의에도]{{0,2}}", q_stripped) or
+        re.fullmatch(rf"{re.escape(m)}\s*(?:은요|는요|이요|가요)?[?!.,]?", q_stripped)
+        for m in matched
+    )
+    # 전국 계열 키워드는 단독·접사("전국적인"·"전국적") 모두 표본 범위 안내 대상.
+    is_national = any(("전국" in m) for m in matched)
+    if not (has_region_tail or is_region_solo or is_national):
+        return None
+    report = (
+        "본 도구는 **서울 일반고**만 다룹니다.\n\n"
+        "현재 표본: 서울 25개 자치구 일반고 **210교** · 2023~2025년 공시.\n\n"
+        "표본 범위 안의 학교·지표·검토 신호에 대해 다시 물어봐 주세요."
+    )
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="range_geo")
+
+
+def _handle_out_of_grade(query: str):
+    """초·중·특수·대학·특목고 등 일반고 외 학교급 질의는 표본 범위 안내."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    if not any(k in q for k in _OUT_OF_GRADE_KEYWORDS):
+        return None
+    report = (
+        "본 도구는 **일반계 고등학교**만 다룹니다.\n\n"
+        "초·중등학교, 특수학교, 대학교, 특수목적 고등학교(외고·과고·자사고 등)는 현재 표본 범위에 포함되지 않습니다.\n\n"
+        "서울 일반고 학교·룰·검토 신호에 대해 물어봐 주세요."
+    )
+    return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="range_grade")
+
+
+# ── 정의/설명 가드 — LLM 호출 없이 정적 응답 (priority 가드보다 먼저) ──
+# 분석 동사가 붙으면 "정의"가 아닌 "분석"으로 보고 LLM에 위임.
+_ANALYSIS_VERBS = (
+    "보여줘", "보여줄", "보여 줘", "보여줄래", "보여봐",
+    "리스트", "목록", "list",
+    "걸린", "잡힌", "탐지", "검출", "걸려",
+    "조회", "찾아", "찾으", "검색",
+    "비교", "비교해", "대조",
+    "그래프", "차트", "표시해",
+    "탑", "1위", "상위", "랭킹", "순위", "1등", "최고점",
+    "있는 학교", "어떤 학교", "어디",
+    "건수", "몇 개", "몇 교", "몇교", "개수",
+)
+_DEFINITION_PATTERNS = (
+    "뭐야", "뭐임", "뭔지", "뭔가", "뭐냐",
+    "무슨", "무엇",
+    "뜻이", "뜻은", "뜻", "의미",
+    "설명", "정의",
+    "기준이", "기준은", "기준",
+    "어떻게 정해", "어떻게 계산", "어떻게 산정", "어떻게 매겨", "어떻게 산출",
+    "산식", "공식", "산출 방법",
+    # 목록/설명 요청형 (분석 동사가 아닐 때만 — 분석 동사 가드와 함께 동작)
+    "종류", "어떤 것", "어떤 게", "뭐뭐", "뭐 뭐", "다 알려", "다 보여", "전부",
+    "검사 항목", "점검 항목", "어떤 룰들", "어떤 룰이",
+)
+# 도구 용어 → 정적 글로서리 키
+# ※ 금지단어("별점·별 등급·★") 트리거는 유지하되, 응답 텍스트에서 그 단어를 노출하지 않는다.
+_GLOSSARY_TERMS = {
+    "검토 우선도": "score_system", "우선도 지수": "score_system", "우선도": "score_system",
+    "지수": "score_system", "종합점수": "score_system", "종합 점수": "score_system",
+    "탐지 점수": "sr",
+    "s_r": "sr", "S_school": "score_system",
+    "위험도": "risk", "w_d": "risk",
+    "초과량": "m_r", "m_r": "m_r",
+    "감쇠": "damping",
+    # 옛 용어 트리거 — 응답은 현 점수체계로 안내
+    "별점": "stars_legacy", "별 등급": "stars_legacy", "별등급": "stars_legacy", "★": "stars_legacy",
+    "룰셋": "rules", "룰": "rules",
+    "카테고리": "categories", "대분류": "categories",
+    "점수": "score_system",
+}
+_DEFINITION_TEXT = {
+    "score_system": (
+        "**검토 우선도 (학교 종합 점수)** — 0~100점.\n\n"
+        "**산식**: S = 0.6·V + 0.2·C + 0.2·R\n"
+        "- V(값): 대분류별 감쇠 후 합산\n"
+        "- C(구조): 탐지된 대분류 수 / 9 × 100\n"
+        "- R(반복): 같은 룰 3년 연속 = 100\n\n"
+        "**라벨 임계**:\n"
+        "- 70+ 즉시 검토\n"
+        "- 50~70 우선 검토 대상\n"
+        "- 30~50 일반 검토\n"
+        "- 0~30 참고"
+    ),
+    "sr": (
+        "**s_r (탐지 항목 점수)** — 0~10점.\n\n"
+        "**산식**: s_r = 위험도(w_d) × min(2, m_r)\n"
+        "- w_d: 룰 위험도 (C3=5, B1·C1·C2·F1'=3, D2·E·C5·G1=2)\n"
+        "- m_r: 초과량 계수 (연속/이진/고정/비대칭)"
+    ),
+    "risk": (
+        "**위험도 (w_d)** — 룰 카테고리별 점수 천장.\n\n"
+        "- C3 학생 안전: 5 (s_r 천장 10)\n"
+        "- B1·C1·C2·F1' 자원·재정·교차: 3 (천장 6)\n"
+        "- D2·E·C5·G1 통계·누락·진급·추세: 2 (천장 4)"
+    ),
+    "m_r": (
+        "**초과량 계수 (m_r)** — 탐지 항목이 임계를 얼마나 넘었는지. 0~2 상한.\n\n"
+        "**유형 4종**:\n"
+        "- 연속형: (|값| - 임계) / 임계\n"
+        "- 이진형(규모): 규모 / 최소기준\n"
+        "- 고정형: 룰별 상수 (D2-2=1.0, E2-2=0.8 등)\n"
+        "- 비대칭(C5-1): 감소·증가 별도 임계"
+    ),
+    "damping": (
+        "**감쇠 (대분류별)** — 같은 대분류 안에서 최고 s_r 1건은 100% 반영, 나머지는 ×0.3.\n\n"
+        "한 원인이 여러 룰에 동시 탐지될 때 점수가 부풀려지지 않도록 보정합니다."
+    ),
+    "stars_legacy": (
+        "**검토 우선도 (학교 종합 점수)** — 0~100점.\n\n"
+        "현 체계는 탐지 항목별 점수(0~10)와 학교 종합 점수(0~100)로 구성됩니다.\n"
+        "산식: S = 0.6·V + 0.2·C + 0.2·R\n\n"
+        "**라벨 임계**: 70+ 즉시 검토 / 50~70 우선 검토 대상 / 30~50 일반 검토 / 0~30 참고."
+    ),
+    "rules": (
+        "**룰셋 v4** — 결정론적 임계 기반 25개.\n\n"
+        "각 룰은 risk · m_type · 임계 메타로 정의되며, 9개 대분류로 묶입니다: "
+        "C1(학생·자원), C2(학생·재정), C3(미조치 피해), B1(전년 대비 급변동), "
+        "D2(유사학교 편차), E(누락·미갱신), C5(학년 진급), F1'(교차 불일치), G1(장기 추세).\n\n"
+        "특정 룰을 더 자세히 보려면 룰 ID(예: C5-1) 또는 룰명으로 다시 물어봐 주세요."
+    ),
+    "categories": (
+        "**대분류 9개** — 학교 종합 점수 구조 점수 C의 분모.\n\n"
+        "- C1 학생·자원 연동 점검\n"
+        "- C2 학생·재정 연동 점검\n"
+        "- C3 미조치 피해 점검\n"
+        "- B1 전년 대비 급변동\n"
+        "- D2 유사학교 대비 편차\n"
+        "- E 누락·미갱신 점검 (E1+E2 통합)\n"
+        "- C5 학년 진급 인원 점검\n"
+        "- F1' 연계 시점 차이 점검\n"
+        "- G1 장기 추세 점검"
+    ),
+}
+
+
+def _definition_rules_full_list() -> str:
+    """RULE_META 25개 룰 전체 목록 (활성/비활성 표기)."""
+    by_cat: dict = {}
+    for rid, m in RULE_META.items():
+        cat = m.get("category", "").rstrip("'")
+        by_cat.setdefault(cat, []).append(rid)
+    lines = ["**룰셋 v4 — 전체 25개 룰**", "", "9개 대분류 · 결정론적 임계 기반 탐지.", ""]
+    cat_order = ["C1", "C2", "C3", "B1", "D2", "C5", "E1", "E2", "F1", "G1"]
+    for cat in cat_order:
+        if cat not in by_cat:
+            continue
+        ko = CATEGORY_NAMES_KO.get(cat, cat)
+        lines.append(f"**[{cat}] {ko}**")
+        for rid in by_cat[cat]:
+            name = RULE_NAMES_KO.get(rid, rid)
+            st = RULE_META.get(rid, {}).get("status", "active")
+            mark = "" if st == "active" else f" ({st})"
+            lines.append(f"- {rid} {name}{mark}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _definition_categories_full_list() -> str:
+    return _DEFINITION_TEXT["categories"]
+
+
+def _definition_for_rule(rid: str) -> str:
+    """RULE_META + RULE_NAMES_KO + SIXBOX_GUIDE로 룰 정적 설명 생성."""
+    name = RULE_NAMES_KO.get(rid, rid)
+    meta = RULE_META.get(rid, {})
+    cat = meta.get("category", "").rstrip("'")
+    cat_ko = CATEGORY_NAMES_KO.get(cat, "")
+    guide = SIXBOX_GUIDE.get(rid, {})
+    pattern = guide.get("pattern", "")
+    risk = meta.get("risk", 0)
+    m_type = meta.get("m_type", "")
+    status = meta.get("status", "active")
+
+    lines = [f"**[{rid}] {name}**"]
+    if cat_ko:
+        lines.append(f"카테고리: {cat_ko}")
+    if pattern:
+        lines.append("")
+        lines.append(f"**패턴**: {pattern}")
+    if risk and m_type:
+        lines.append("")
+        lines.append(f"**점수**: 위험도 w_d={risk}, m_r 유형={m_type}, s_r 천장 = {risk * 2}점.")
+    if status != "active":
+        lines.append("")
+        lines.append(f"※ 현재 상태: {status} (점수 산정에서 제외).")
+    return "\n".join(lines)
+
+
+def _definition_for_category(code: str) -> str:
+    """CATEGORY_NAMES_KO + RULE_META로 카테고리 정적 설명 생성."""
+    code_clean = code.rstrip("'")
+    ko = CATEGORY_NAMES_KO.get(code_clean, code)
+    rules = [(rid, RULE_NAMES_KO.get(rid, rid))
+             for rid, m in RULE_META.items()
+             if m.get("category", "").rstrip("'") == code_clean]
+    risk_set = sorted({m.get("risk", 0) for rid, m in RULE_META.items()
+                       if m.get("category", "").rstrip("'") == code_clean and m.get("status") == "active"},
+                      reverse=True)
+    risk_txt = "/".join(str(r) for r in risk_set) or "-"
+    lines = [f"**[{code}] {ko}**", "", f"위험도: {risk_txt}", "", "**포함 룰**:"]
+    for rid, name in rules:
+        st = RULE_META.get(rid, {}).get("status", "active")
+        mark = "" if st == "active" else f" ({st})"
+        lines.append(f"- {rid} {name}{mark}")
+    return "\n".join(lines)
+
+
+_LIST_TRIGGER_TERMS = ("종류", "어떤 것", "어떤 게", "뭐뭐", "뭐 뭐",
+                       "다 알려", "다 보여", "전부", "검사 항목", "점검 항목",
+                       "어떤 룰들", "어떤 룰이")
+
+
+def _handle_definition_query(query: str):
+    """정의·설명 질의 → 정적 응답 (LLM 호출 X). priority guard보다 먼저 통과시킨다.
+    경계: 분석 동사(보여줘/걸린/1위/...)가 붙으면 정의 아님 → LLM.
+    예외: '검사 항목 전부 보여줘' 같은 목록형은 '보여줘'가 있어도 정적 목록 응답."""
+    q = (query or "").strip()
+    if not q or len(q) > 80:
+        return None
+    q_low = q.lower()
+
+    has_list_trigger = any(t in q for t in _LIST_TRIGGER_TERMS)
+    # 1) 분석 동사 차단 — 단, 목록형 트리거가 있으면 분석 동사를 무시 (룰/카테고리 전체 목록 응답)
+    if not has_list_trigger and any(v.lower() in q_low for v in _ANALYSIS_VERBS):
+        return None
+    # 2) 정의 패턴 또는 목록형 트리거 필요
+    has_def_pattern = any(p in q_low for p in _DEFINITION_PATTERNS)
+    if not (has_def_pattern or has_list_trigger):
+        return None
+
+    # 2-1) 목록형 ("룰 종류"·"카테고리 종류"·"어떤 룰들 있어"·"검사 항목") → 전체 리스트
+    # ★ "검사 항목"/"점검 항목"은 분석 동사(보여줘)와 함께 와도 정의(목록)로 처리
+    if has_list_trigger:
+        # 카테고리 목록
+        if "카테고리" in q or "대분류" in q:
+            return _build_simple_response(_definition_categories_full_list(),
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+        # 룰 목록 (룰·검사·점검·룰셋)
+        if any(kw in q for kw in ("룰", "룰셋", "검사", "점검")):
+            return _build_simple_response(_definition_rules_full_list(),
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+
+    # 3-1: 룰 ID 매칭 (대소문자 무관, 더 긴 것 우선)
+    for rid in sorted(RULE_NAMES_KO.keys(), key=lambda r: -len(r)):
+        if rid.lower() in q_low:
+            return _build_simple_response(_definition_for_rule(rid),
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+    # 3-2: 룰 한국어명 (괄호 안 보조 설명은 제거하고도 매칭)
+    for rid, name in RULE_NAMES_KO.items():
+        if not name:
+            continue
+        name_core = name.split("(")[0].strip()
+        if name in q or (name_core and name_core in q):
+            return _build_simple_response(_definition_for_rule(rid),
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+    # 3-3: 카테고리 코드 또는 한국어명
+    for code, ko in CATEGORY_NAMES_KO.items():
+        if code in q.split() or (code in q and (q == code or has_def_pattern)):
+            if ko in q or len(code) <= 3:
+                return _build_simple_response(_definition_for_category(code),
+                                              _EXAMPLE_SUGGESTIONS, route="definition")
+        if ko and ko in q:
+            return _build_simple_response(_definition_for_category(code),
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+    # 3-4: 도구 용어 (길이 긴 것 우선)
+    for term in sorted(_GLOSSARY_TERMS.keys(), key=lambda t: -len(t)):
+        if term.lower() in q_low:
+            text_key = _GLOSSARY_TERMS[term]
+            return _build_simple_response(_DEFINITION_TEXT[text_key],
+                                          _EXAMPLE_SUGGESTIONS, route="definition")
+    return None
+
+
+# ── 룰 ID 탐지 조회 (`rule_lookup`) — "C5 걸린 학교"·"C3-3A 탐지된 학교" 직접 응답 ──
+# priority_query와 동일한 패턴으로 LLM 우회. detections에서 rule_id 필터링해 답.
+_LOOKUP_VERBS = (
+    "걸린", "걸려", "걸렸", "걸린 학교", "걸린 곳", "걸린데", "걸리는",
+    "탐지된", "탐지 된", "탐지", "검출된", "검출",
+    "잡힌", "잡힌 학교", "포함된",
+)
+# 추가 조건어가 붙으면 단순 필터로 안 됨 → LLM 위임 (priority guard와 동일 의도)
+_LOOKUP_COMPLEX_HINTS = (
+    # 정렬·극값
+    "많은", "적은", "높은", "낮은", "큰", "작은",
+    "제일", "가장", "최대", "최소", "Top", "top", "1위", "상위", "하위",
+    "이상인", "초과인", "이하인", "미만인",
+    # 비교
+    "비교", "대비", "평균", "VS", "vs", " 대 ", "보다",
+    # 기간 한정 (연도 4자리 별도 정규식으로 보강)
+    "2023년", "2024년", "2025년", "작년", "최근",
+    # 교집합·복수 룰 표현
+    "둘 다", "둘다", "셋 다", "셋다", "모두", "전부",
+    " 그리고 ", " 및 ", " 와 ", " 과 ", " 랑 ", " 이랑 ",
+    # 부분 집합 — "중"은 "OO 중 OO" 패턴이 흔함
+    "중 ", "중에서",
+)
+# 별도 정규식 — 연도 4자리(2020·2021·...) 단독 등장
+_LOOKUP_YEAR_RE = re.compile(r"\b20\d{2}\b")
+
+
+# 카테고리 코드 다음에 올 수 있는 한국어 조사·접속 표현 (단어경계 보강)
+_KOREAN_BOUNDARY = "[랑와과의이가은는을를도만에에서으로로하고]"
+
+
+def _count_rule_identifiers(query: str) -> int:
+    """쿼리에 등장하는 서로 다른 룰 카테고리/식별자 수.
+    동일 카테고리 안의 룰(C3-3A·C3-3B 등)은 1개로 묶어서 센다 — '미조치 피해' 단일 개념 카운트.
+    2개 이상이면 복합 의도(교집합/복수)로 본다."""
+    if not query:
+        return 0
+    q = query
+    q_low = q.lower()
+    cats: set = set()
+    # 1) 룰 ID 매칭 → 그 카테고리만 추가
+    for rid in RULE_NAMES_KO.keys():
+        if rid.lower() in q_low:
+            cat = RULE_META.get(rid, {}).get("category", "").rstrip("'")
+            if cat:
+                cats.add(cat)
+    # 2) 룰 한국어명/줄임형 매칭
+    for rid, name in RULE_NAMES_KO.items():
+        if not name:
+            continue
+        name_core = name.split("(")[0].strip()
+        if (name in q) or (name_core and name_core in q):
+            cat = RULE_META.get(rid, {}).get("category", "").rstrip("'")
+            if cat:
+                cats.add(cat)
+    # 3) 카테고리 코드 단어경계 (한국어 조사 포함)
+    for code in CATEGORY_NAMES_KO.keys():
+        pattern = rf"(?:^|\s|[^\w]){re.escape(code)}(?:$|\s|[^\w-]|{_KOREAN_BOUNDARY})"
+        if re.search(pattern, q):
+            cats.add(code)
+    # 4) 카테고리 한국어명
+    for code, ko in CATEGORY_NAMES_KO.items():
+        if ko and ko in q:
+            cats.add(code)
+    return len(cats)
+
+
+def _is_complex_lookup(query: str) -> bool:
+    """복합 조건/조건어 여부. True면 단순 rule_lookup 처리 금지(LLM 위임)."""
+    if not query:
+        return False
+    if any(h in query for h in _LOOKUP_COMPLEX_HINTS):
+        return True
+    if _LOOKUP_YEAR_RE.search(query):
+        return True
+    # 자치구 + 룰 = 교집합(특정 구 안에서 룰 걸린 학교) → 복합
+    if _district_in_query(query) is not None:
+        return True
+    return False
+
+
+def _extract_rule_context(query: str, df: pd.DataFrame,
+                         scores: pd.DataFrame, detections: pd.DataFrame) -> dict | None:
+    """쿼리에서 룰 식별자 추출 + 해당 detections의 학교 목록 반환.
+    LLM 위임 경로에서 prompt에 동봉할 컨텍스트.
+    매칭 안 되면 None."""
+    if detections is None or detections.empty or df is None or df.empty:
+        return None
+    rids, display_key = _extract_rule_id_or_name(query)
+    if not rids:
+        return None
+    df_d = detections[detections["rule_id"].isin(rids)].copy()
+    if "s_r" in df_d.columns:
+        df_d["s_r"] = pd.to_numeric(df_d["s_r"], errors="coerce").fillna(0)
+    else:
+        df_d["s_r"] = 0
+    rule_names = [{"rule_id": rid, "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
+                   "guide": (SIXBOX_GUIDE.get(rid, {}) or {}).get("pattern", "")}
+                  for rid in rids]
+    schools = []
+    if not df_d.empty:
+        grouped = (df_d.groupby(["school_code", "school_name"])
+                       .agg(max_sr=("s_r", "max"),
+                            years=("year", lambda s: sorted(set(int(y) for y in s if pd.notna(y)))),
+                            rules=("rule_id", lambda s: sorted(set(str(r) for r in s))))
+                       .reset_index())
+        if scores is not None and not scores.empty:
+            grouped = grouped.merge(scores[["school_code", "score"]], on="school_code", how="left")
+        else:
+            grouped["score"] = None
+        for _, r in grouped.iterrows():
+            sf = df[df["school_code"] == r["school_code"]]
+            district_v = str(sf["district"].iloc[0]) if not sf.empty else ""
+            students_v = None
+            if not sf.empty and "year" in sf.columns and not sf.empty:
+                last = sf.sort_values("year").tail(1)
+                if "student_count" in last.columns and pd.notna(last["student_count"].iloc[0]):
+                    students_v = int(last["student_count"].iloc[0])
+            schools.append({
+                "school_code": str(r["school_code"]),
+                "school_name": str(r["school_name"]),
+                "district": district_v,
+                "max_sr": round(float(r["max_sr"]), 2),
+                "years": r["years"],
+                "rule_ids": r["rules"],
+                "school_score": (round(float(r["score"]), 1)
+                                 if r.get("score") is not None and pd.notna(r["score"]) else None),
+                "student_count": students_v,
+            })
+        schools.sort(key=lambda s: -s["max_sr"])
+    return {
+        "display_key": display_key,
+        "rule_ids": rids,
+        "rule_names": rule_names,
+        "schools": schools,
+    }
+
+
+def _extract_rule_id_from_query(query: str) -> str | None:
+    """쿼리에서 룰 ID 추출 (긴 것 우선)."""
+    if not query:
+        return None
+    q_low = query.lower()
+    for rid in sorted(RULE_NAMES_KO.keys(), key=lambda r: -len(r)):
+        if rid.lower() in q_low:
+            return rid
+    return None
+
+
+def _extract_rule_id_or_name(query: str) -> tuple[list[str], str]:
+    """룰 ID 또는 룰명에서 매칭되는 rule_id 리스트와 표시명 추출.
+    카테고리 코드(C5/C3 등)만 들어오면 그 카테고리의 모든 활성 rule_id 반환."""
+    if not query:
+        return [], ""
+    q = query
+    q_low = q.lower()
+    # 1) 룰 ID (긴 것 우선)
+    for rid in sorted(RULE_NAMES_KO.keys(), key=lambda r: -len(r)):
+        if rid.lower() in q_low:
+            return [rid], rid
+    # 2) 룰 한국어명 (괄호 안 보조 제거 후도 매칭)
+    for rid, name in RULE_NAMES_KO.items():
+        if not name:
+            continue
+        name_core = name.split("(")[0].strip()
+        if name in q or (name_core and name_core in q):
+            return [rid], rid
+    # 3) 카테고리 코드 (C5·C3·B1·D2·C2·E1·E2·F1·G1)
+    for code in CATEGORY_NAMES_KO.keys():
+        # 코드는 단어 단위로 등장(스페이스/구두점 경계) 또는 끝
+        if re.search(rf"(?:^|\s|[^\w]){re.escape(code)}(?:$|\s|[^\w-])", q):
+            rids = [rid for rid, m in RULE_META.items()
+                    if m.get("category", "").rstrip("'") == code and m.get("status") == "active"]
+            if rids:
+                return rids, code
+    # 4) 카테고리 한국어명
+    for code, ko in CATEGORY_NAMES_KO.items():
+        if ko and ko in q:
+            rids = [rid for rid, m in RULE_META.items()
+                    if m.get("category", "").rstrip("'") == code and m.get("status") == "active"]
+            if rids:
+                return rids, code
+    return [], ""
+
+
+def _handle_rule_lookup_query(query: str, df: pd.DataFrame, scores: pd.DataFrame,
+                              detections: pd.DataFrame):
+    """룰 ID/룰명 + '걸린/탐지된 학교' → detections 직접 조회.
+    경계: 비교·조건어·연도·자치구 등이 붙거나 룰이 2개 이상이면 LLM 위임 → None."""
+    if detections is None or detections.empty or df is None or df.empty:
+        return None
+    q = (query or "").strip()
+    if not q:
+        return None
+    # 1) 조회 동사(걸린/탐지) 있어야 함
+    if not any(v in q for v in _LOOKUP_VERBS):
+        return None
+    # 2) 룰 식별자 추출
+    rids, display_key = _extract_rule_id_or_name(q)
+    if not rids:
+        return None
+    # 3) 복수 룰(2개+ 식별자) 또는 복합 조건 → LLM 위임 (컨텍스트는 별도로 prompt에 동봉)
+    if _count_rule_identifiers(q) >= 2:
+        return None
+    if _is_complex_lookup(q):
+        return None
+
+    # 4) detections에서 필터
+    df_d = detections[detections["rule_id"].isin(rids)].copy()
+    if df_d.empty:
+        # 룰이 활성인데 탐지 0건이면 자연스러운 빈 결과 안내
+        report = f"**{display_key}** 룰에 해당하는 탐지는 현재 표본(서울 일반고 210교 · 2023~2025년)에서 0건입니다."
+        return _build_simple_response(report, _EXAMPLE_SUGGESTIONS, route="rule_lookup")
+
+    # 학교별 최고 s_r + 연도 묶음 → 점수 내림차순 정렬
+    if "s_r" in df_d.columns:
+        df_d["s_r"] = pd.to_numeric(df_d["s_r"], errors="coerce").fillna(0)
+    else:
+        df_d["s_r"] = 0
+    school_agg = (df_d.groupby(["school_code", "school_name"])
+                      .agg(max_sr=("s_r", "max"),
+                           years=("year", lambda s: sorted(set(int(y) for y in s if pd.notna(y)))),
+                           n=("rule_id", "count"))
+                      .reset_index()
+                      .sort_values(["max_sr", "n"], ascending=[False, False]))
+
+    # 학교 종합점수 조인 (있으면 표시)
+    if scores is not None and not scores.empty:
+        school_agg = school_agg.merge(
+            scores[["school_code", "score", "rank"]], on="school_code", how="left"
+        )
+    else:
+        school_agg["score"] = None
+        school_agg["rank"] = None
+
+    rows = school_agg.head(15)
+    result_data = []
+    for _, r in rows.iterrows():
+        sf = df[df["school_code"] == r["school_code"]]
+        district_v = str(sf["district"].iloc[0]) if not sf.empty else ""
+        yrs = ",".join(str(y) for y in (r["years"] or [])) or "-"
+        score_v = r.get("score")
+        score_txt = f"{float(score_v):.1f}" if score_v is not None and pd.notna(score_v) else "-"
+        result_data.append({
+            "학교명": str(r["school_name"]),
+            "지역구": district_v,
+            "탐지 연도": yrs,
+            "탐지 항목 점수(s_r) 최대": f"{float(r['max_sr']):.2f}",
+            "학교 종합점수": score_txt,
+        })
+
+    rule_names = ", ".join(f"{rid}({RULE_NAMES_KO.get(rid, rid)})" for rid in rids)
+    report = (
+        f"**{display_key}** 룰에 해당하는 학교 — 총 **{len(school_agg)}교** "
+        f"(탐지 항목 점수 s_r 내림차순, 상위 {len(rows)}교 표시).\n\n"
+        f"대상 룰: {rule_names}\n\n"
+        "점수 자체는 판정이 아니며, 본부 담당자의 확인을 돕는 정렬 신호입니다."
+    )
+
+    # 단일 룰 결과면 6박스 첨부(데이터 패널이 학교 1개를 요구하지 않는 학교군 응답에는 None)
+    sixbox = None
+    return {
+        "plan": {
+            "analysis_plan": f"deterministic guard: rule_lookup ({display_key})",
+            "columns_used": [],
+            "criteria": display_key,
+            "pandas_code": "",
+            "comparison": "",
+            "confidence": "높음",
+        },
+        "result_data": result_data,
+        "report": report,
+        "confidence": "높음",
+        "follow_up_suggestions": _EXAMPLE_SUGGESTIONS,
+        "sixbox": sixbox,
+    }
 
 
 def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, detections: pd.DataFrame):
@@ -922,9 +1693,13 @@ def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, d
     q = (query or "").strip()
     if not any(k in q for k in _PRIORITY_KEYWORDS):
         return None
+    # 학교명 패턴이 있는데 표본에 없으면 전체 top5 응답은 부적절 — LLM/안내로 위임.
+    # 예: "부산고 우선순위" → 부산고는 서울 표본에 없음 → 전체 top5 반환하면 오답.
+    if _looks_like_school_name(q) and not _query_school_in_data(q):
+        return None
 
-    # district 필터
-    district = next((d for d in _DISTRICTS_KO if d in q), None)
+    # district 필터 — '중' 같은 1자 자치구는 _district_in_query로 단어경계 처리
+    district = _district_in_query(q)
     scope = scores
     scope_label = "전체"
     if district:
@@ -1281,9 +2056,10 @@ RULE_NAMES_KO = {
     "E1-3": "공시 의무 항목 미제출",
     "E2-2": "3년 동일값 반복",
     "F1'-1": "교원수 교차 불일치",
-    # G1-1: 본교 단일 시계열의 누적 단조 추세를 점검.
-    # 동료군 대비 비교(방향 역행 / 변동성 차이)는 G1-2 / G1-3 후속 룰로 검토.
+    # G1-1: 본교 단일 시계열의 누적 단조 추세를 점검 (m_r = 변동폭/전체평균변동폭).
+    # G1-2: 같은 방향 + 변동폭이 전체 평균의 2배+. (G1-3 미구현)
     "G1-1": "다년 단조 추세",
+    "G1-2": "추세 급변동",
 }
 
 CATEGORY_NAMES_KO = {
@@ -1504,6 +2280,18 @@ def _get_category_code(rule_id: str) -> str:
     return base.rstrip("'")
 
 
+# 학교 종합 점수(0~100) → 한국어 라벨. 임계 단일 출처는 priority_scorer.LABEL_THRESHOLDS.
+# 프론트 indexLabel과 동일한 임계·라벨을 사용.
+_GRADE_LABEL_KO = {
+    "critical": "즉시 검토",
+    "major":    "우선 검토 대상",
+    "minor":    "일반 검토",
+    "warning":  "참고",
+}
+def _grade_label_ko(score: float) -> str:
+    return _GRADE_LABEL_KO.get(label_for(score), "참고")
+
+
 def _categories_ko(categories_str: str) -> list:
     """'C1, C3, B1' → [{'code':'C1','ko':'학생·자원 연동 점검'}, ...]"""
     if not categories_str or pd.isna(categories_str):
@@ -1513,11 +2301,13 @@ def _categories_ko(categories_str: str) -> list:
 
 
 def _representative_detection(detections_df: pd.DataFrame, school_code: str):
-    """학교의 가장 심각한 탐지(최고 별, 최신 연도) 1건"""
+    """학교의 가장 강한 탐지 1건 — s_r(탐지 건 점수, v4) 우선, 동률이면 최신 연도.
+    s_r 컬럼이 없는 경우(레거시 경로) star로 폴백."""
     school = detections_df[detections_df["school_code"] == school_code]
     if school.empty:
         return None
-    return school.sort_values(["star", "year"], ascending=[False, False]).iloc[0]
+    sort_keys = ["s_r", "year"] if "s_r" in school.columns else ["star", "year"]
+    return school.sort_values(sort_keys, ascending=[False, False]).iloc[0]
 
 
 def _enrich_school_summary(row, detections_df: pd.DataFrame, df: pd.DataFrame) -> dict:
@@ -1564,9 +2354,10 @@ def _build_self_report(detail_result: dict, school_df, full_df, det_cards: list,
     포함: 학교명·지수·순위·주요 검토 신호 Top N·카테고리 요약·동료군 대비 요약·확인 권장."""
     rank_total = int(school_score["rank"].iloc[0]) if not school_score.empty else 0
     score_f = float(school_score["score"].iloc[0]) if not school_score.empty else 0.0
-    grade_label = "우선 검토" if score_f >= 16 else "일반 검토" if score_f >= 11 else "참고"
+    # 라벨 — priority_scorer.LABEL_THRESHOLDS 단일 출처(70/50/30). 프론트 indexLabel과 임계 동일.
+    grade_label = _grade_label_ko(score_f)
 
-    # 주요 검토 신호 Top 5 — 카드에서 severity·연도 순으로
+    # 주요 검토 신호 Top 5 — s_r(탐지 건 점수, v4) 우선, 동률은 최신 연도
     flat_rules = []
     for cat in det_cards:
         for r in cat.get("rules", []):
@@ -1575,10 +2366,11 @@ def _build_self_report(detail_result: dict, school_df, full_df, det_cards: list,
                 "rule_name_ko": r["rule_name_ko"],
                 "category_ko": cat["category_ko"],
                 "year": r["year"],
-                "star": r.get("star", 0),
+                "s_r": float(r.get("s_r", 0) or 0),
+                "star": r.get("star", 0),  # 백워드 호환 (UI 분기 X)
                 "detail": r.get("detail", ""),
             })
-    flat_rules.sort(key=lambda x: (-x["star"], -x["year"], x["rule_id"]))
+    flat_rules.sort(key=lambda x: (-x["s_r"], -x["year"], x["rule_id"]))
     top_signals = flat_rules[:5]
 
     # 카테고리 요약 — 카테고리별 룰 수·세부 룰 수
@@ -1818,9 +2610,14 @@ SIXBOX_GUIDE = {
         "recommend": "학교알리미 교원총계에서 강사를 제외하고 KESS와 비교해 주세요.",
     },
     "G1-1": {
-        "pattern": "단년 변동은 작지만 다년에 걸쳐 같은 방향으로 누적 8% 이상 변화. B1 단년 급변에는 안 잡히는 누적 변화를 점검합니다. (본교 단일 시계열 기준 · 동료군 대비 비교는 G1-2/G1-3 후속 룰로 검토)",
+        "pattern": "단년 변동은 작지만 다년에 걸쳐 같은 방향으로 누적 8% 이상 변화. B1 단년 급변에는 안 잡히는 누적 변화를 점검합니다. (m_r = 본교 변동폭 / 전체평균변동폭)",
         "normal": "지역 인구 변화, 학교 운영 변화, 정책 영향, 물가 상승.",
         "recommend": "다년 누적 변동의 사유(인구·운영·정책·물가 등)를 함께 확인하고 추세를 지속 모니터링해 주세요.",
+    },
+    "G1-2": {
+        "pattern": "전체 평균과 같은 방향이지만 변동폭이 평균의 2배 이상으로 빠른 추세. (m_r = 본교 변동폭 / 전체평균변동폭)",
+        "normal": "지역 단위 정책·인구 변화의 영향이 평균보다 본교에 강하게 누적되는 경우.",
+        "recommend": "동료군 평균과의 격차가 누적되는 사유를 점검하고, 동일 방향의 다른 지표도 함께 비교해 주세요.",
     },
 }
 
@@ -1893,8 +2690,10 @@ def _build_sixbox(rule, school_df, full_df, district):
 RULE_COLUMNS = {
     "C1-1":  [("학생수","student_count"), ("학급수","class_count")],
     "C1-2":  [("학생수","student_count"), ("학급수","class_count")],
-    "C1-3":  [("학생수","student_count"), ("교원수","teacher_count")],
-    "C1-4":  [("학급수","class_count"), ("교원수","teacher_count")],
+    # C1-3 / C1-4: 탐지 조건이 강사 제외 교원수(teacher_count_no_instructor) 기준이므로
+    # Evidence·차트도 강사 제외 컬럼으로 통일.
+    "C1-3":  [("학생수","student_count"), ("교원수(강사제외)","teacher_count_no_instructor")],
+    "C1-4":  [("학급수","class_count"), ("교원수(강사제외)","teacher_count_no_instructor")],
     "C1-5":  [("학생수","student_count"), ("보직교사수","head_teacher_count")],
     "C1-7":  [("교원1인당학생수","students_per_teacher")],
     "C1-8":  [("학급당학생수","students_per_class")],
@@ -1916,7 +2715,13 @@ RULE_COLUMNS = {
     "E1-3":  [],
     "E2-2":  [("학급수","class_count"), ("교원수","teacher_count"), ("학생수","student_count")],
     "F1'-1": [("교원수(강사제외)","teacher_count_no_instructor")],
-    "G1-1":  [("학생수","student_count"), ("교원수","teacher_count"), ("진학률(%)","graduation_rate"), ("1인당급식비(원)","meal_cost_per_student")],
+    # G1: 7개 지표 — 실제 detection.values["col_key"]가 단일 지표를 지정. 기본값은 7개 전부.
+    "G1-1":  [("학생수","student_count"), ("교원수","teacher_count"), ("학급수","class_count"),
+              ("학급당학생수","students_per_class"), ("학폭 심의건수","bullying_cases"),
+              ("진학률(%)","graduation_rate"), ("1인당급식비(원)","meal_cost_per_student")],
+    "G1-2":  [("학생수","student_count"), ("교원수","teacher_count"), ("학급수","class_count"),
+              ("학급당학생수","students_per_class"), ("학폭 심의건수","bullying_cases"),
+              ("진학률(%)","graduation_rate"), ("1인당급식비(원)","meal_cost_per_student")],
 }
 
 
@@ -1931,9 +2736,16 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
         cat = _get_category_code(rid)
         cat_ko = CATEGORY_NAMES_KO.get(cat, cat)
         if cat_ko not in cat_groups:
-            cat_groups[cat_ko] = {"category_ko": cat_ko, "cat_code": cat, "max_star": 0, "rules": [], "years_set": set()}
+            cat_groups[cat_ko] = {"category_ko": cat_ko, "cat_code": cat,
+                                  "max_star": 0, "max_sr": 0.0, "rules": [], "years_set": set()}
         star = int(d.get("star", 0))
+        # s_r: 탐지 건 점수 (v4). 정렬·강조 기준은 s_r 단일 출처.
+        try:
+            s_r_val = float(d.get("s_r", 0) or 0)
+        except (TypeError, ValueError):
+            s_r_val = 0.0
         cat_groups[cat_ko]["max_star"] = max(cat_groups[cat_ko]["max_star"], star)
+        cat_groups[cat_ko]["max_sr"] = max(cat_groups[cat_ko]["max_sr"], s_r_val)
         cat_groups[cat_ko]["years_set"].add(int(d.get("year", 0)))
         # detection 단위 동적 col_label/col_key (E2-2, D2, B1, E1 등). 없으면 RULE_COLUMNS 기본.
         dyn_label = str(d.get("col_label", "") or "").strip()
@@ -1950,7 +2762,8 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
             "rule_id": rid,
             "rule_name_ko": RULE_NAMES_KO.get(rid, rid),
             "year": int(d.get("year", 0)),
-            "star": star,
+            "star": star,                  # 내부 메타 (UI 분기 X, 백워드 호환)
+            "s_r": round(s_r_val, 2),      # 탐지 건 점수 (v4 정렬·라벨 단일 출처)
             "detail": d.get("detail", ""),
             "col_labels": col_labels,    # 표시용 (한국어)
             "col_keys": col_keys,        # 매칭용 (영문 컬럼 ID)
@@ -1968,7 +2781,9 @@ def _build_detection_cards(detections_df, school_df, full_df, district) -> list:
         detections_by_cat.setdefault(c_ko, []).append(d)
 
     result = []
-    for cat_ko, group in sorted(cat_groups.items(), key=lambda x: -x[1]["max_star"]):
+    # 카테고리 정렬: 최고 s_r(탐지 건 점수) 우선, 동률은 max_star로 폴백
+    for cat_ko, group in sorted(cat_groups.items(),
+                                key=lambda x: (-x[1].get("max_sr", 0.0), -x[1].get("max_star", 0))):
         # 관련 컬럼 수집
         related_cols = set()
         for d in detections_by_cat.get(cat_ko, []):
@@ -2104,9 +2919,48 @@ def _explain_with_gemini(client, detections_df, school_df) -> str:
     return _call_gemini(client, prompt)
 
 
-def _get_analysis_plan(client, query: str, columns: dict, history: list) -> dict:
+def _format_rule_context(ctx: dict) -> str:
+    """rule_lookup 컨텍스트(룰+학교)를 LLM prompt용 단락으로 직렬화.
+    LLM이 추측하지 않고 주어진 학교 목록 위에서만 조건을 적용하도록 강제."""
+    if not ctx or not ctx.get("rule_ids"):
+        return ""
+    parts = []
+    parts.append(f"[탐지 룰 컨텍스트] 사용자가 가리킨 룰: {ctx.get('display_key','')}")
+    for rn in ctx.get("rule_names", []):
+        rid = rn.get("rule_id", "")
+        name = rn.get("rule_name_ko", "")
+        guide = rn.get("guide", "")
+        parts.append(f"- {rid} {name}" + (f": {guide}" if guide else ""))
+    schools = ctx.get("schools", [])
+    if schools:
+        parts.append(f"\n[이 룰에 걸린 학교 — 표본 안 {len(schools)}교, max s_r 내림차순]")
+        parts.append("학교코드 | 학교명 | 지역구 | 탐지연도 | 학생수(최신) | max_sr | 학교종합점수")
+        for s in schools[:80]:
+            yrs = ",".join(str(y) for y in (s.get("years") or [])) or "-"
+            stu = s.get("student_count")
+            stu_txt = str(stu) if stu is not None else "-"
+            sc = s.get("school_score")
+            sc_txt = f"{sc:.1f}" if sc is not None else "-"
+            parts.append(f"{s.get('school_code','')} | {s.get('school_name','')} | "
+                         f"{s.get('district','')} | {yrs} | {stu_txt} | "
+                         f"{s.get('max_sr',0):.2f} | {sc_txt}")
+        if len(schools) > 80:
+            parts.append(f"... (외 {len(schools) - 80}교 생략)")
+        parts.append("")
+        parts.append("[지시] 위 학교 목록만 사용하라. 룰 식별자를 지역/지표로 오해하지 말 것.")
+        parts.append("사용자 추가 조건(학생수/연도/지역/정렬)에 맞춰 위 목록을 필터·정렬해서 답하라.")
+    else:
+        parts.append("\n[참고] 이 룰의 표본 안 탐지는 0건이다. 외부 지식으로 추측 답변 금지.")
+    return "\n".join(parts)
+
+
+def _get_analysis_plan(client, query: str, columns: dict, history: list,
+                       rule_context: dict | None = None) -> dict:
     cols_text = "\n".join(f"- {k}: {v}" for k, v in columns.items())
     history_text = "\n".join(f"Q: {h.get('query','')} → {h.get('summary','')}" for h in history[-3:]) if history else "없음"
+
+    ctx_block = _format_rule_context(rule_context) if rule_context else ""
+    ctx_section = f"\n\n{ctx_block}\n" if ctx_block else ""
 
     prompt = f"""사용자 질문을 분석하여 pandas DataFrame 분석 계획을 JSON으로 작성하세요.
 
@@ -2114,7 +2968,7 @@ def _get_analysis_plan(client, query: str, columns: dict, history: list) -> dict
 {cols_text}
 
 [이전 대화]
-{history_text}
+{history_text}{ctx_section}
 
 [사용자 질문]
 {query}
@@ -2134,7 +2988,8 @@ pandas_code 규칙:
 - df 변수 사용 (pd, np 사용 가능)
 - import 금지, 파일 I/O 금지
 - 최대 10줄 이내
-- NaN 처리: .dropna() 또는 .fillna() 사용"""
+- NaN 처리: .dropna() 또는 .fillna() 사용
+- 룰 컨텍스트가 있으면 그 컨텍스트의 school_code 집합만 대상으로 필터 (df[df['school_code'].isin([...])]) 후 추가 조건 적용"""
 
     text = _call_gemini(client, prompt, SYSTEM_PROMPT + "\n\n반드시 JSON 형식으로만 응답하세요. 마크다운 코드블록 없이 순수 JSON만.")
 

@@ -1,5 +1,5 @@
 """
-priority_scorer.py — 학교별 종합 이상치 점수 (v4 점수체계, 2026-05-30 전환).
+priority_scorer.py — 학교별 종합 점수 (v4 점수체계, 2026-05-30 전환).
 
 ★ 등급제 → 점수제 전환. 두 단위로 점수가 매겨진다:
   · s_r (탐지 건별)   = w_d × min(2, m_r)              범위 0~10
@@ -14,7 +14,7 @@ priority_scorer.py — 학교별 종합 이상치 점수 (v4 점수체계, 2026-
   R (반복) : 같은 룰이 3년 연속 탐지되면 100, 아니면 0.
 
 라벨 (사용자 노출, 0~100):
-  75~100 = critical  · 50~75 = major  · 25~50 = minor  · 0~25 = warning
+  70~100 = critical  · 50~70 = major  · 30~50 = minor  · 0~30 = warning
 """
 
 import ast
@@ -103,8 +103,11 @@ def _coerce_values(values):
 
 
 def compute_s_r(rule_id: str, values) -> float:
-    """탐지 건별 이상치 점수 s_r = w_d × min(2, m_r). 범위 0~10."""
+    """탐지 항목별 점수 s_r = w_d × min(2, m_r). 범위 0~10."""
     meta = RULE_META.get(str(rule_id), {})
+    # 비활성 룰은 점수 0 (RULE_META status 단일 출처)
+    if meta.get("status") != "active":
+        return 0.0
     risk = float(meta.get("risk", 0) or 0)
     if risk <= 0:
         return 0.0
@@ -134,11 +137,38 @@ def compute_s_r(rule_id: str, values) -> float:
         else:
             thresh = float(meta.get("m_up", 1) or 1)
             m_r = (v - thresh) / thresh if v >= thresh else 0.0
+    elif m_type == "ratio":
+        # G1-1·G1-2: m_r = |실측 변동폭| / |전체평균변동폭| (이미 엔진이 m_ratio로 저장)
+        src = meta.get("m_source", "")
+        m_r = abs(_to_float(vals.get(src)))
     else:
         m_r = 0.0
 
     m_r = max(0.0, min(M_CAP, m_r))
     return round(min(S_CAP, risk * m_r), 2)
+
+
+def enrich_with_s_r(detections_df: pd.DataFrame) -> pd.DataFrame:
+    """탐지 DataFrame에 s_r 컬럼을 부여(재계산 안전).
+    호출부: app.py lifespan에서 run_all 직후 1회. 대표 신호·정렬 등 단일 출처."""
+    if detections_df.empty:
+        out = detections_df.copy()
+        if "s_r" not in out.columns:
+            out["s_r"] = []
+        return out
+    out = detections_df.copy()
+    out["s_r"] = out.apply(
+        lambda r: compute_s_r(str(r["rule_id"]), r.get("values", {})), axis=1
+    )
+    return out
+
+
+def filter_active(detections_df: pd.DataFrame) -> pd.DataFrame:
+    """RULE_META status='active'인 탐지만 남김 (V·C·R 산정 입력 단일 정제)."""
+    if detections_df.empty:
+        return detections_df
+    active_ids = {rid for rid, m in RULE_META.items() if m.get("status") == "active"}
+    return detections_df[detections_df["rule_id"].isin(active_ids)].copy()
 
 
 # ── 학교 종합 점수 ──

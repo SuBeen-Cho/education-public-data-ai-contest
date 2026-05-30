@@ -39,10 +39,10 @@ RULE_META = {
     "C1-4":  {"category": "C1", "name": "학급↔교원 불균형",            "star": 1, "status": "active",
               "cols": ["class_count", "teacher_count_no_instructor"],
               "risk": 3, "m_type": "binary",     "m_source": "teacher_diff", "m_min_size": 5},
-    "C1-5":  {"category": "C1", "name": "학생↔보직교사 불균형",         "star": 1, "status": "active",
+    "C1-5":  {"category": "C1", "name": "학생↔보직교사 불균형",         "star": 1, "status": "inactive",
               "cols": ["student_count_yoy", "head_teacher_count"],
               "risk": 0, "m_type": "fixed",      "m_const": 0,
-              "mapping_note": "v4: 정의서·코드 조건 불일치로 점수 미산정(비활성). 탐지는 유지."},
+              "mapping_note": "v4: 정의서·코드 조건 불일치 — 점수 산정·탐지 모두 보류(inactive). 전국/확장 시 활성 예정. 코드는 잔존."},
     "C1-7":  {"category": "C1", "name": "교원1인당학생수 급변",         "star": 1, "status": "active",
               "cols": ["students_per_teacher"],
               "risk": 3, "m_type": "continuous", "m_source": "yoy",          "m_threshold": 20},
@@ -51,10 +51,10 @@ RULE_META = {
               "risk": 3, "m_type": "continuous", "m_source": "diff",         "m_threshold": 1.5},
     # C3 미조치 피해 (위험도 5)
     "C3-3A": {"category": "C3", "name": "미조치 피해 (강력)",          "star": 3, "status": "active",
-              "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"],
+              "cols": ["bullying_victims", "bullying_protection", "bullying_discipline"],
               "risk": 5, "m_type": "binary",     "m_source": "victims",      "m_min_size": 3},
     "C3-3B": {"category": "C3", "name": "미조치 피해 (참고)",          "star": 2, "status": "active",
-              "cols": ["bullying_victims", "bullying_protection", "bullying_perpetrators"],
+              "cols": ["bullying_victims", "bullying_protection", "bullying_discipline"],
               "risk": 5, "m_type": "binary",     "m_source": "victims",      "m_min_size": 3},
     # B1 전년 대비 급변동 (위험도 3)
     "B1-1":  {"category": "B1", "name": "학생·학급·교원 급변동(이중)",  "star": 2, "status": "active",
@@ -113,10 +113,35 @@ RULE_META = {
     "F1'-1": {"category": "F1", "name": "교원수 교차 불일치",          "star": 2, "status": "active",
               "cols": ["teacher_count_no_instructor", "kess_teacher_total"],
               "risk": 3, "m_type": "binary",     "m_source": "diff",         "m_min_size": 3},
-    # G1 장기 추세 점검 (위험도 2, 신규)
-    "G1-1":  {"category": "G1", "name": "3년 단조 추세",               "star": 2, "status": "active",
-              "cols": ["student_count", "teacher_count", "graduation_rate", "meal_cost_per_student"],
-              "risk": 2, "m_type": "continuous", "m_source": "cumulative_pct", "m_threshold": 8},
+    # G1 장기 추세 점검 (위험도 2, 신규) — v4 산식: m_r = 변동폭 / 전체평균변동폭
+    "G1-1":  {"category": "G1", "name": "다년 단조 추세",              "star": 2, "status": "active",
+              "cols": ["student_count", "teacher_count", "class_count", "students_per_class",
+                       "bullying_cases", "graduation_rate", "meal_cost_per_student"],
+              "risk": 2, "m_type": "ratio",      "m_source": "m_ratio"},
+    "G1-2":  {"category": "G1", "name": "추세 급변동",                  "star": 2, "status": "active",
+              "cols": ["student_count", "teacher_count", "class_count", "students_per_class",
+                       "bullying_cases", "graduation_rate", "meal_cost_per_student"],
+              "risk": 2, "m_type": "ratio",      "m_source": "m_ratio"},
+}
+
+
+# ── G1 중복 제거용: 기존 룰이 같은 학교+같은 지표를 이미 잡고 있으면 G1에서 제외 ──
+# detection.values["col_key"]가 명시적으로 있는 룰은 그 키와 직접 비교.
+# 명시적 col_key 없이 단일 지표를 보는 룰은 아래 표로 보강.
+G1_INDICATORS = (
+    "student_count", "teacher_count", "class_count", "students_per_class",
+    "bullying_cases", "graduation_rate", "meal_cost_per_student",
+)
+EXISTING_RULE_INDICATORS = {
+    "B1-5": {"graduation_rate"},
+    "B1-6": {"bullying_cases"},
+    "C1-1": {"class_count"},
+    "C1-2": {"class_count"},
+    "C1-3": {"teacher_count"},   # 강사 제외 교원, 의미상 동일 지표군
+    "C1-4": {"teacher_count"},
+    "C1-8": {"students_per_class"},
+    "C2-3":  {"meal_cost_per_student"},  # 급식비 변동은 1인당 급식비 추세와 의미적으로 겹침
+    "C2-3+": {"meal_cost_per_student"},
 }
 
 
@@ -147,7 +172,9 @@ class RuleEngine:
         self._check_c1_2()    # 학생↔학급 완만 역방향 (1학급)
         self._check_c1_3()    # 학생↔교원 불균형 (강사 제외)
         self._check_c1_4()    # 학급↔교원 불균형
-        self._check_c1_5()    # 학생↔보직교사 불균형
+        # C1-5는 RULE_META status에 따라 호출 (v4 비활성 — 메타 단일 출처)
+        if RULE_META.get("C1-5", {}).get("status") == "active":
+            self._check_c1_5()
         self._check_c1_7()    # 교원1인당학생수 급변
         self._check_c1_8()    # 학급당학생수 급변
 
@@ -157,7 +184,7 @@ class RuleEngine:
         # B1
         self._check_b1_1_b1_2()  # 학생·학급·교원 ±10% 이중조건/단년
         self._check_b1_3_b1_4()  # 학교회계 세입·세출 ±30%/±50%
-        self._check_b1_5()       # 진학률 급변동 (★ 분기)
+        self._check_b1_5()       # 진학률 급변동
         self._check_b1_6()       # 학폭 심의 급증
 
         # D2
@@ -180,8 +207,8 @@ class RuleEngine:
         # F1'
         self._check_f1_prime()  # 교원수 교차 불일치
 
-        # G1 — 장기 추세
-        self._check_g1_1()      # 3년 단조 추세 (드리프트)
+        # G1 — 장기 추세 (반드시 다른 룰 이후에 호출 — 중복 제거 로직이 기존 탐지 집합을 참조)
+        self._check_g1()      # 다년 단조 추세(G1-1) + 추세 급변동(G1-2)
 
         return self._to_dataframe()
 
@@ -361,23 +388,29 @@ class RuleEngine:
     # ────────────────────────────────────────────────
 
     def _check_c3_3(self):
-        """C3-3A/B: 피해학생 >0 + 보호조치 0 + 가해학생수 >0 (선도조치 수행 추정).
+        """C3-3A/B: 피해학생 >0 + 보호조치 0 + 선도조치 건수 >0 (가해 측 선도조치 수행 확인).
         등급A: 피해 3명 이상 / 등급B: 1~2명. 동일 학교 3회 이상 누적이면 B→A 승격."""
+        # 안전 가드: 선도조치 컬럼은 C3-3 전제. 없으면 0 대체 대신 명시적으로 드러내야 한다.
+        if "bullying_discipline" not in self.df.columns:
+            raise RuntimeError(
+                "C3-3 룰 전제 컬럼 'bullying_discipline'(선도교육조치 건수)가 데이터에 없습니다. "
+                "data_loader.BULLY_COLS의 discipline_1·discipline_2 매핑 확인 필요."
+            )
         school_flags = {}  # school_code → list of (year, idx-in-self.detections)
         for _, row in self.df.iterrows():
             v = int(row.get("bullying_victims", 0) or 0)
             p = int(row.get("bullying_protection", 0) or 0)
-            perp = int(row.get("bullying_perpetrators", 0) or 0)
+            disc = int(row.get("bullying_discipline", 0) or 0)
             if v > 0 and p == 0:
-                if perp == 0:
-                    continue  # 등급X 자체해결/이월 추정
+                if disc == 0:
+                    continue  # 등급X 자체해결/이월 추정 (가해 측 선도조치도 없음)
                 if v >= 3:
                     grade, star = "A", 3
                 else:
                     grade, star = "B", 2
                 self._add(row, f"C3-3{grade}", "미조치 피해", star, "C3",
-                          f"피해학생 {v}명 / 보호조치 {p}건 / 가해학생 {perp}명",
-                          {"victims": v, "protection": p, "perpetrators": perp})
+                          f"피해학생 {v}명 / 보호조치 {p}건 / 선도조치 {disc}건",
+                          {"victims": v, "protection": p, "discipline": disc})
                 sc = str(row.get("school_code", ""))
                 school_flags.setdefault(sc, []).append(len(self.detections) - 1)
 
@@ -708,22 +741,27 @@ class RuleEngine:
     # F1' — 교차 불일치
     # ────────────────────────────────────────────────
 
-    def _check_g1_1(self):
-        """G1-1: 3년 단조 추세 (드리프트).
-        조건 — 단년 변동은 ±10% 미만(B1 영역 제외) + 3년 같은 방향 + 누적 변화 8% 이상.
-        용도 — 단년 급변은 안 잡혔지만 천천히 누적되어 의미 있는 변화가 일어난 패턴 점검."""
-        targets = [
-            ("student_count", "학생수"),
-            ("teacher_count", "교원수"),
-            ("graduation_rate", "진학률(%)"),
-            ("meal_cost_per_student", "1인당급식비(원)"),
-        ]
+    # G1 적용 지표 (7개) — RULE_META["G1-1"]["cols"]와 일치
+    _G1_TARGETS = [
+        ("student_count",          "학생수"),
+        ("teacher_count",          "교원수"),
+        ("class_count",            "학급수"),
+        ("students_per_class",     "학급당학생수"),
+        ("bullying_cases",         "학폭 심의건수"),
+        ("graduation_rate",        "진학률(%)"),
+        ("meal_cost_per_student",  "1인당급식비(원)"),
+    ]
+
+    def _g1_school_series(self):
+        """학교별 3년 시계열(v0,v1,v2)을 지표별로 묶어 반환.
+        반환: {col: [(school_code, group_last_row, v0, v1, v2, cum_pct, yoy1, yoy2), ...]}"""
+        out = {col: [] for col, _ in self._G1_TARGETS}
         df_sorted = self.df.sort_values(["school_code", "year"])
-        for _, group in df_sorted.groupby("school_code"):
+        for sc, group in df_sorted.groupby("school_code"):
             if len(group) < 3:
                 continue
             group = group.sort_values("year").reset_index(drop=True)
-            for col, name in targets:
+            for col, _name in self._G1_TARGETS:
                 if col not in group.columns:
                     continue
                 vals = group[col].values
@@ -734,38 +772,110 @@ class RuleEngine:
                     continue
                 yoy1 = (v1 - v0) / v0 * 100
                 yoy2 = (v2 - v1) / v1 * 100 if v1 != 0 else 0
-                # 단년 ±10% 이상은 B1 영역이므로 드리프트로 보지 않음
-                if abs(yoy1) >= 10 or abs(yoy2) >= 10:
-                    continue
-                # 단조 (같은 방향 — 0은 양쪽 어디에도 못 들어감)
-                if not ((yoy1 > 0 and yoy2 > 0) or (yoy1 < 0 and yoy2 < 0)):
-                    continue
                 cum_pct = (v2 - v0) / v0 * 100
-                if abs(cum_pct) < 8:
+                out[col].append((str(sc), group.iloc[-1], float(v0), float(v1), float(v2),
+                                 float(cum_pct), float(yoy1), float(yoy2)))
+        return out
+
+    def _g1_already_covered(self, school_code: str, indicator_col: str) -> bool:
+        """같은 학교+같은 지표를 기존 룰(B1/C1/C2 등)이 이미 탐지했는지 검사.
+        - detection.values["col_key"]가 명시적으로 같은 col이면 True
+        - 명시적 col_key 없는 룰은 EXISTING_RULE_INDICATORS로 매칭"""
+        for det in self.detections:
+            if det.school_code != school_code:
+                continue
+            if det.rule_id.startswith("G1"):
+                continue
+            det_col = ""
+            if isinstance(det.values, dict):
+                det_col = str(det.values.get("col_key", "") or "").strip()
+            if det_col and det_col == indicator_col:
+                return True
+            cover = EXISTING_RULE_INDICATORS.get(det.rule_id, set())
+            if indicator_col in cover:
+                return True
+        return False
+
+    def _check_g1(self):
+        """G1-1 (다년 단조 추세) + G1-2 (추세 급변동).
+        공통 산식 — m_r = |이 학교 누적변동| / |전체평균변동(signed)|
+        G1-1 트리거: 3년 단조 + 누적 ±8% + 단년 ±10% 미만 (B1 미해당)
+        G1-2 트리거: 같은 방향(부호 일치) + |누적| ≥ 2 × |전체평균변동|
+        중복 제거: 같은 학교+같은 지표를 기존 룰이 이미 탐지하면 제외."""
+        series_by_col = self._g1_school_series()
+
+        # 1) 지표별 전체 평균 변동(signed) — 단일 출처 baseline
+        peer_mean = {}
+        for col, _ in self._G1_TARGETS:
+            arr = [t[5] for t in series_by_col.get(col, [])]
+            peer_mean[col] = (sum(arr) / len(arr)) if arr else 0.0
+
+        for col, name in self._G1_TARGETS:
+            entries = series_by_col.get(col, [])
+            if not entries:
+                continue
+            pm_signed = peer_mean[col]
+            pm_abs = abs(pm_signed)
+            # baseline 0 가까우면 의미 없음 — 안전 하한 1.0%
+            baseline = max(pm_abs, 1.0)
+
+            for sc, row_last, v0, v1, v2, cum_pct, yoy1, yoy2 in entries:
+                # ── G1-1: 단조 + 누적 8% + 단년 B1 미해당 ──
+                cond_monotonic = ((yoy1 > 0 and yoy2 > 0) or (yoy1 < 0 and yoy2 < 0))
+                cond_no_b1 = abs(yoy1) < 10 and abs(yoy2) < 10
+                cond_cum_8 = abs(cum_pct) >= 8
+                if cond_monotonic and cond_no_b1 and cond_cum_8:
+                    if self._g1_already_covered(sc, col):
+                        continue
+                    m_ratio = abs(cum_pct) / baseline
+                    direction = "감소" if cum_pct < 0 else "증가"
+                    # 회귀 기울기·R^2 (UI 차트용)
+                    xs = [0, 1, 2]; ys = [v0, v1, v2]
+                    mean_x = 1.0; mean_y = sum(ys) / 3
+                    ss_xy = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(3))
+                    ss_xx = sum((xs[i] - mean_x) ** 2 for i in range(3))
+                    slope = ss_xy / ss_xx if ss_xx else 0.0
+                    intercept = mean_y - slope * mean_x
+                    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+                    ss_res = sum((ys[i] - (slope * xs[i] + intercept)) ** 2 for i in range(3))
+                    r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+                    self._add(row_last, "G1-1", "다년 단조 추세", 2, "G1",
+                              f"{name} 3년 누적 {cum_pct:+.1f}% ({v0:.1f}→{v1:.1f}→{v2:.1f}) · 단조 {direction} · 전체평균 {pm_signed:+.1f}%",
+                              {"field": name, "col_key": col, "col_label": name,
+                               "cumulative_pct": round(float(cum_pct), 1),
+                               "peer_mean_signed": round(float(pm_signed), 1),
+                               "peer_mean_abs": round(float(pm_abs), 1),
+                               "m_ratio": round(float(m_ratio), 2),
+                               "slope_per_year": round(float(slope), 2),
+                               "r_squared": round(float(r2), 3),
+                               "direction": direction,
+                               "values_3y": [round(v0, 1), round(v1, 1), round(v2, 1)],
+                               "yoy1": round(yoy1, 1), "yoy2": round(yoy2, 1)})
+                    continue  # G1-1이 잡으면 G1-2 중복 안 봄
+
+                # ── G1-2: 같은 방향 + |누적| ≥ 2 × |전체평균| ──
+                # peer 평균이 +/- 어느 한쪽으로 충분히 기울어 있어야 의미 있음
+                if pm_abs < 1.0:  # 평균이 사실상 0이면 "같은 방향" 비교 무의미
                     continue
-                # 단순 선형 회귀 기울기 + R^2 (3 포인트)
-                xs = [0, 1, 2]
-                ys = [float(v0), float(v1), float(v2)]
-                mean_x = 1.0
-                mean_y = sum(ys) / 3
-                ss_xy = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(3))
-                ss_xx = sum((xs[i] - mean_x) ** 2 for i in range(3))
-                slope = ss_xy / ss_xx if ss_xx else 0.0
-                intercept = mean_y - slope * mean_x
-                ss_tot = sum((y - mean_y) ** 2 for y in ys)
-                ss_res = sum((ys[i] - (slope * xs[i] + intercept)) ** 2 for i in range(3))
-                r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+                same_dir = (cum_pct > 0 and pm_signed > 0) or (cum_pct < 0 and pm_signed < 0)
+                if not same_dir:
+                    continue
+                if abs(cum_pct) < 2 * pm_abs:
+                    continue
+                if self._g1_already_covered(sc, col):
+                    continue
+                m_ratio = abs(cum_pct) / baseline
                 direction = "감소" if cum_pct < 0 else "증가"
-                self._add(group.iloc[-1], "G1-1", "3년 단조 추세", 2, "G1",
-                          f"{name} 3년 누적 {cum_pct:+.1f}% ({v0:.1f}→{v1:.1f}→{v2:.1f}) · 단조 {direction} · R²={r2:.2f}",
+                self._add(row_last, "G1-2", "추세 급변동", 2, "G1",
+                          f"{name} 3년 누적 {cum_pct:+.1f}% ({v0:.1f}→{v1:.1f}→{v2:.1f}) · 전체평균 {pm_signed:+.1f}%의 {m_ratio:.1f}배",
                           {"field": name, "col_key": col, "col_label": name,
                            "cumulative_pct": round(float(cum_pct), 1),
-                           "slope_per_year": round(float(slope), 2),
-                           "r_squared": round(float(r2), 3),
+                           "peer_mean_signed": round(float(pm_signed), 1),
+                           "peer_mean_abs": round(float(pm_abs), 1),
+                           "m_ratio": round(float(m_ratio), 2),
                            "direction": direction,
-                           "values_3y": [round(float(v0), 1), round(float(v1), 1), round(float(v2), 1)],
-                           "yoy1": round(float(yoy1), 1),
-                           "yoy2": round(float(yoy2), 1)})
+                           "values_3y": [round(v0, 1), round(v1, 1), round(v2, 1)],
+                           "yoy1": round(yoy1, 1), "yoy2": round(yoy2, 1)})
 
     def _check_f1_prime(self):
         """F1'-1: 학교알리미(강사 제외) vs KESS 교원수 3명 이상 차이."""

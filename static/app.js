@@ -540,13 +540,13 @@ function removeFilter(f, v) {
   applyFilterAndRender();
 }
 
-// ===== DISTRIBUTION (우측 패널) — v4 점수체계 4단계 =====
+// ===== DISTRIBUTION (우측 패널) — v4 점수체계 4단계 (필터 chip과 라벨 통일) =====
 function renderDistBars(dist) {
   const order = [
-    ['critical', '즉시 검토',    'priority'],
-    ['major',    '우선 검토',    'priority'],
-    ['minor',    '일반 검토',  'normal'],
-    ['warning',  '일반',        'normal'],
+    ['critical', '즉시 검토',      'priority'],
+    ['major',    '우선 검토 대상',  'priority'],
+    ['minor',    '일반 검토',      'normal'],
+    ['warning',  '참고',           'normal'],
   ];
   const mx = Math.max(...Object.values(dist), 1);
   document.getElementById('dist-bars').innerHTML = order.map(([k, label, cls]) => {
@@ -719,7 +719,7 @@ function _collectRulesFromCards(cards) {
           col_keys: [],      // 매칭 키 (영문)
           years: [],
           details: [],
-          severity: 0,
+          sr: 0,             // 룰 단위 max s_r (정렬·강조 단일 출처)
           data_table: cat.data_table || [],
           sixbox: r.sixbox || null,    // 첫 detection의 6박스를 룰 기본값으로 채택
         };
@@ -741,20 +741,28 @@ function _collectRulesFromCards(cards) {
       });
       m.years.push(r.year);
       m.details.push({ year: r.year, detail: r.detail });
-      m.severity = Math.max(m.severity, r.star || 0);
+      // 룰 카드 정렬·라벨 기준: s_r(탐지 건 점수 0~10) 단일 출처. star는 미사용.
+      const sr = Number(r.s_r) || 0;
+      if (sr > m.sr) m.sr = sr;
     });
   });
   return Object.values(map).sort((a, b) => {
-    if (b.severity !== a.severity) return b.severity - a.severity;
+    if (b.sr !== a.sr) return b.sr - a.sr;
     return a.rule_id.localeCompare(b.rule_id);
   });
 }
 
-function _ruleGradeCls(severity) {
-  return severity >= 3 ? 'grade-priority' : severity >= 2 ? 'grade-normal' : 'grade-ref';
+// 탐지 건 점수 s_r(0~10)을 카드 시각 강조에 매핑.
+// 임계: 7.5 / 4 — 점수체계.html "점수가 높으면 뭘 의미하는가" 4구간 단순화.
+function _ruleGradeCls(sr) {
+  const v = Number(sr) || 0;
+  return v >= 7.5 ? 'grade-priority' : v >= 4 ? 'grade-normal' : 'grade-ref';
 }
-function _ruleGradeLabel(severity) {
-  return severity >= 3 ? '우선 검토' : severity >= 2 ? '일반 검토' : '참고';
+function _ruleGradeLabel(sr) {
+  const v = Number(sr) || 0;
+  if (v >= 7.5) return '즉시 검토';
+  if (v >= 4)   return '우선 확인';
+  return '참고';
 }
 
 function renderMasterDetail(d) {
@@ -777,8 +785,8 @@ function renderMasterDetail(d) {
     // 핵심 수치 1개 — 가장 최근 연도의 detail 첫 50자
     const latest = r.details.slice().sort((a, b) => b.year - a.year)[0];
     const headline = latest ? latest.detail : '';
-    const gcls = _ruleGradeCls(r.severity);
-    const glabel = _ruleGradeLabel(r.severity);
+    const gcls = _ruleGradeCls(r.sr);
+    const glabel = _ruleGradeLabel(r.sr);
     return `
       <div class="md-rule" data-rule="${r.rule_id}" onclick="selectRule('${r.rule_id}')">
         <div class="md-rule-name">${r.rule_name_ko}<span class="md-rule-rid">${r.rule_id}</span></div>
@@ -791,7 +799,7 @@ function renderMasterDetail(d) {
       </div>`;
   }).join('');
 
-  // 기본 선택: 가장 강한 신호 (severity 우선, 동률 시 첫 번째)
+  // 기본 선택: 가장 강한 신호 (s_r 우선, 동률 시 첫 번째)
   selectRule(rules[0].rule_id);
 }
 
@@ -809,8 +817,8 @@ function selectRule(ruleId) {
   const yrs = Array.from(new Set(rule.years)).sort();
   const yrTxt = yrs.length === 1 ? `${yrs[0]}년` : `${yrs[0]}~${yrs[yrs.length - 1]}년`;
   const isRepeat = new Set(rule.years).size >= 3;
-  const gcls = _ruleGradeCls(rule.severity);
-  const glabel = _ruleGradeLabel(rule.severity);
+  const gcls = _ruleGradeCls(rule.sr);
+  const glabel = _ruleGradeLabel(rule.sr);
 
   // 수치 테이블 (룰 관련 컬럼만)
   const dt = rule.data_table || [];
