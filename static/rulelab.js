@@ -67,6 +67,9 @@ const RL_DATA = [
 ];
 
 let rlCurrent = -1;
+let rlLastAiCode = '';       // AI가 생성한 원본 코드
+let rlLastAiCols = [];       // AI가 사용한 컬럼
+let rlLastAiThresholds = []; // AI가 반환한 임계값 정보
 
 function setRuleLabQuery(text) {
   document.getElementById('rulelab-input').value = text;
@@ -77,14 +80,15 @@ async function sendRuleLabMsg() {
   const q = document.getElementById('rulelab-input').value.trim();
   if (!q) return;
 
-  // 하드코딩 매칭
-  const idx = RL_DATA.findIndex(d => q.includes(d.query.slice(0,6)));
+  // 하드코딩 매칭 (정확한 쿼리만)
+  const idx = RL_DATA.findIndex(d => q === d.query);
   if (idx >= 0) {
     rlRender(idx);
     return;
   }
 
   // AI 자유 입력 — Gemini API
+  rlCurrent = -1;  // 하드코딩 인덱스 리셋
   document.getElementById('rulelab-empty').style.display = 'none';
   document.getElementById('rulelab-dashboard').style.display = 'block';
   _rl('rl-interpret').innerHTML = '<span style="color:var(--text-muted)">AI가 조건을 해석하고 있습니다...</span>';
@@ -107,17 +111,36 @@ async function sendRuleLabMsg() {
     // 좌측: 해석
     _rl('rl-interpret').innerHTML = data.interpretation || '해석 없음';
 
-    // 좌측: 지표
-    const cols = data.columns_used || [];
-    _rl('rl-indicators').innerHTML = cols.map(c =>
-      `<label class="cb-item checked"><input type="checkbox" checked disabled> ${c} <code style="font-family:var(--mono);font-size:10px;color:var(--cobalt);background:var(--cobalt-bg);padding:0 4px;border-radius:2px;margin-left:4px">${c}</code></label>`
+    // 좌측: 지표 (체크박스)
+    const indicators = data.indicators || (data.columns_used || []).map(c => ({name:c, col:c, checked:true}));
+    _rl('rl-indicators').innerHTML = indicators.map((ind, i) =>
+      `<label class="cb-item ${ind.checked?'checked':''}"><input type="checkbox" ${ind.checked?'checked':''} style="accent-color:var(--cobalt)"> ${ind.name} <code style="font-family:var(--mono);font-size:10px;color:var(--cobalt);background:var(--cobalt-bg);padding:0 4px;border-radius:2px;margin-left:4px">${ind.col}</code></label>`
     ).join('');
 
     // 좌측: 컬럼
+    const cols = data.columns_used || indicators.filter(i=>i.checked).map(i=>i.col);
     _rl('rl-columns').innerHTML = cols.map(c => `<span class="col-tag">${c}</span>`).join('');
 
-    // 좌측: 임계값 (AI 자유입력은 없음)
-    _rl('rl-thresholds').innerHTML = '<div style="font-size:11px;color:var(--text-muted)">AI가 자동 설정한 조건입니다.</div>';
+    // 좌측: 임계값 (AI가 반환하면 슬라이더 표시)
+    const thresholds = data.thresholds || [];
+    if (thresholds.length > 0) {
+      _rl('rl-thresholds').innerHTML = thresholds.map((t, i) =>
+        `<div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--text-sub)">${t.label}</span></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="range" min="${t.min}" max="${t.max}" value="${t.val}" id="rl-ai-th${i}" oninput="document.getElementById('rl-ai-thv${i}').textContent=this.value+'${t.unit}'" style="flex:1;accent-color:var(--cobalt)">
+            <span id="rl-ai-thv${i}" style="font-size:12px;font-weight:800;color:var(--cobalt);background:var(--cobalt-bg);padding:1px 7px;border-radius:3px;min-width:40px;text-align:center">${t.val}${t.unit}</span>
+          </div>
+        </div>`
+      ).join('');
+      // 적용 버튼 표시
+      const applyEl = document.getElementById('rl-apply');
+      if (applyEl) applyEl.style.display = 'block';
+    } else {
+      _rl('rl-thresholds').innerHTML = '<div style="font-size:11px;color:var(--text-muted)">AI가 자동 설정한 조건입니다.</div>';
+      const applyEl = document.getElementById('rl-apply');
+      if (applyEl) applyEl.style.display = 'none';
+    }
 
     // 가운데: 요약 카드
     const total = data.results ? data.results.length : 0;
@@ -144,8 +167,11 @@ async function sendRuleLabMsg() {
     // 가운데: 중복 체크 (AI는 중복 정보 없으므로 안내)
     _rl('rl-overlap').innerHTML = '<div style="font-size:12px;font-weight:800;color:var(--navy);margin-bottom:8px;display:flex;align-items:center;gap:6px"><span style="width:3px;height:11px;background:var(--cobalt);border-radius:2px;display:inline-block"></span>기존 룰 중복 체크</div><div style="font-size:11.5px;color:var(--text-muted);line-height:1.6">AI 생성 조건은 기존 룰과의 중복을 자동으로 확인할 수 없습니다. 하드코딩 시나리오를 선택하면 중복 체크가 표시됩니다.</div>';
 
-    // 가운데: 코드
-    _rl('rl-code').textContent = data.code || '# 코드 없음';
+    // 가운데: 코드 (저장 — 재실행용)
+    rlLastAiCode = data.code || '';
+    rlLastAiCols = cols;
+    rlLastAiThresholds = thresholds;
+    _rl('rl-code').textContent = rlLastAiCode || '# 코드 없음';
 
     // 우측: 탐지 학교
     _rl('rl-count').textContent = `${total}건`;
@@ -165,7 +191,14 @@ async function sendRuleLabMsg() {
   }
 }
 
-function _rl(id) { return document.getElementById(id); }
+function _rl(id) {
+  const el = document.getElementById(id);
+  if (!el) {
+    console.warn('[RuleLab] ID not found:', id);
+    return { innerHTML:'', textContent:'', style:{display:''}, set innerHTML(v){}, set textContent(v){} };
+  }
+  return el;
+}
 
 function rlRender(idx) {
   rlCurrent = idx;
@@ -311,31 +344,78 @@ function rlRenderResults(results, d) {
   _rl('rl-footer').innerHTML = `<div style="display:flex;gap:16px;font-size:11px"><span>전체 <b style="color:var(--cobalt)">${total}</b>건</span><span>중복 <b style="color:var(--amber)">${overlapCount||(d.fullOverlapMsg?total:0)}</b>건</span><span>신규 <b style="color:var(--green)">${total-overlapCount}</b>건</span></div>`;
 }
 
-function rlApplyFilters() {
-  if (rlCurrent < 0) return;
-  const d = RL_DATA[rlCurrent];
-  if (!d.thresholds.length) return;
+async function rlApplyFilters() {
+  // 하드코딩 시나리오
+  if (rlCurrent >= 0) {
+    const d = RL_DATA[rlCurrent];
+    if (!d.thresholds.length) return;
 
-  const th0 = parseInt(document.getElementById('rl-th0')?.value || d.thresholds[0]?.val);
-  const th1 = parseInt(document.getElementById('rl-th1')?.value || d.thresholds[1]?.val);
-  const key = th0+'/'+th1;
+    const th0 = parseInt(document.getElementById('rl-th0')?.value || d.thresholds[0]?.val);
+    const th1 = parseInt(document.getElementById('rl-th1')?.value || d.thresholds[1]?.val);
+    const key = th0+'/'+th1;
 
-  rlRenderConditions(d, [th0, th1]);
+    rlRenderConditions(d, [th0, th1]);
 
-  let newResults = d.results;
-  if (d.altResults) {
-    if (d.altResults[key]) { newResults = d.altResults[key]; }
-    else {
-      let bestKey=null, bestDist=Infinity;
-      Object.keys(d.altResults).forEach(k => { const [a,b]=k.split('/').map(Number); const dist=Math.abs(a-th0)+Math.abs(b-th1); if(dist<bestDist){bestDist=dist;bestKey=k;} });
-      if (bestKey) newResults = d.altResults[bestKey];
+    let newResults = d.results;
+    if (d.altResults) {
+      if (d.altResults[key]) { newResults = d.altResults[key]; }
+      else {
+        let bestKey=null, bestDist=Infinity;
+        Object.keys(d.altResults).forEach(k => { const [a,b]=k.split('/').map(Number); const dist=Math.abs(a-th0)+Math.abs(b-th1); if(dist<bestDist){bestDist=dist;bestKey=k;} });
+        if (bestKey) newResults = d.altResults[bestKey];
+      }
     }
+
+    const total = newResults.length;
+    const overlapCount = newResults.filter(r=>r.overlap).length;
+    rlRenderSummary(total, overlapCount, d);
+    rlRenderResults(newResults, d);
+    return;
   }
 
-  const total = newResults.length;
-  const overlapCount = newResults.filter(r=>r.overlap).length;
-  rlRenderSummary(total, overlapCount, d);
-  rlRenderResults(newResults, d);
+  // AI 자유 입력 — THRESHOLD_N 변수를 슬라이더 값으로 교체 후 재실행
+  if (!rlLastAiCode) return;
+
+  let modifiedCode = rlLastAiCode;
+  rlLastAiThresholds.forEach((t, i) => {
+    const slider = document.getElementById('rl-ai-th' + i);
+    if (slider) {
+      const newVal = slider.value;
+      // THRESHOLD_0 = 숫자 → THRESHOLD_0 = 새값
+      const regex = new RegExp('THRESHOLD_' + i + '\\s*=\\s*[\\-]?[\\d.]+', 'g');
+      modifiedCode = modifiedCode.replace(regex, 'THRESHOLD_' + i + ' = ' + newVal);
+    }
+  });
+
+  _rl('rl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">재탐지 중...</div>';
+
+  try {
+    const res = await fetch('/api/rulelab/rerun', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ code: modifiedCode, columns_used: rlLastAiCols })
+    });
+    const data = await res.json();
+
+    const total = data.results ? data.results.length : 0;
+    _rl('rl-count').textContent = `${total}건`;
+    _rl('rl-summary').querySelector('.sc-total .sc-num').textContent = total;
+
+    if (data.results && data.results.length > 0) {
+      _rl('rl-results').innerHTML = data.results.map((r,i) =>
+        `<div class="rp-item"><div class="rp-rank"><div class="rp-num">${i+1}</div><span class="rp-school">${r.school||''}</span><span class="rp-year">${r.year||''}</span></div><div class="rp-detail">${r.detail||''}</div></div>`
+      ).join('');
+    } else {
+      _rl('rl-results').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">조건에 해당하는 학교가 없습니다.</div>';
+    }
+    _rl('rl-footer').innerHTML = `<div style="display:flex;gap:16px;font-size:11px"><span>전체 <b style="color:var(--cobalt)">${total}</b>건</span><span>분석 <b>210</b>교</span></div>`;
+    _rl('rl-stats').innerHTML = data.message || '';
+
+    // 수정된 코드 표시
+    _rl('rl-code').textContent = modifiedCode;
+  } catch(e) {
+    _rl('rl-results').innerHTML = `<div style="padding:20px;text-align:center;color:#991B1B">재실행 오류: ${e.message}</div>`;
+  }
 }
 
 function rlToggleIndicator(idx, checked) {

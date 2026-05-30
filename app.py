@@ -1098,37 +1098,54 @@ async def rulelab(req: RuleLabRequest):
     cols = list(df.columns)
     sample = df.head(3).to_dict(orient='records')
 
-    prompt = f"""너는 교육 공공데이터 검증 룰 생성 AI야.
-사용자가 자연어로 검증 조건을 설명하면 구조화된 JSON으로 응답해.
+    col_desc = {
+        "student_count": "학생수", "teacher_count": "교원수", "class_count": "학급수",
+        "students_per_class": "학급당학생수", "students_per_teacher": "교원1인당학생수",
+        "budget_revenue": "학교회계 세입", "budget_expense": "학교회계 세출",
+        "meal_cost_per_student": "1인당급식비", "graduation_rate": "졸업자진학률",
+        "bullying_cases": "학폭심의건수", "bullying_victims": "피해학생수", "bullying_perpetrators": "가해학생수",
+        "student_count_yoy": "학생수 전년대비변동률(%)", "teacher_count_yoy": "교원수 전년대비변동률(%)",
+        "district": "구", "school_name": "학교명", "year": "연도", "school_type": "설립유형",
+    }
+    available = {c: col_desc.get(c, c) for c in cols if c in col_desc}
 
-실제 데이터 컬럼: {cols[:30]}
-샘플 데이터 (3행): {sample}
+    prompt = f"""너는 교육 공공데이터 검증 룰 생성 AI야. 서울 일반고 210교 × 3년(2023~2025) 데이터를 분석해.
+
+사용 가능한 컬럼과 설명:
+{available}
+
+중요: district 컬럼 값은 "강남", "노원", "관악" 등 '구' 없이 저장됨. "관악구"가 아니라 "관악"으로 필터링해야 함.
+중요: bullying_cases, bullying_victims, bullying_perpetrators는 NaN이 많음. fillna(0) 후 사용.
+중요: thresholds의 val은 반드시 0이 아닌 의미 있는 기본값 설정 (예: 심의건수 5건, 피해학생 3명 등).
 
 사용자 질문: {req.query}
 
-반드시 아래 JSON 형식으로만 응답 (다른 텍스트 금지):
+반드시 아래 JSON 형식으로만 응답 (다른 텍스트·마크다운 금지):
 {{
-  "interpretation": "조건 해석 (한국어 2~3문장, HTML <b> 태그 사용 가능)",
-  "code": "pandas로 df를 필터링하는 Python 코드. result_df 변수에 결과 DataFrame 저장. import 금지, df와 pd만 사용.",
-  "columns_used": ["사용한 컬럼명"],
+  "interpretation": "조건을 전문적으로 다듬은 해석 (한국어 2~3문장, <b>태그 사용). 사용자 말 그대로가 아니라, 구체적 지표·수치 기준으로 재해석",
+  "code": "pandas 코드. df는 이미 존재. result_df에 결과 저장. import 금지. df와 pd만 사용. .sort_values()로 심각도 순 정렬. 중요: 임계값은 반드시 코드 맨 위에 THRESHOLD_0, THRESHOLD_1 등 변수로 선언하고 조건에서 해당 변수 사용. 예: THRESHOLD_0 = 5\nresult_df = df[df['bullying_cases'] >= THRESHOLD_0]",
+  "columns_used": ["실제 사용한 컬럼명 (위 목록에서만 선택)"],
+  "indicators": [
+    {{"name": "한국어 지표명", "col": "컬럼명", "checked": true/false}}
+  ],
+  "thresholds": [
+    {{"label": "임계값 설명", "min": 최소값(숫자), "max": 최대값(숫자), "val": 기본값(숫자), "unit": "단위(%, 명, 건 등)"}}
+  ],
   "primary_condition": {{
     "label": "주 조건",
-    "value": "조건 요약 (예: 학생수 전년 대비 10% 이상 감소)",
-    "desc": "설명 (예: 작년보다 학생이 얼마나 줄었는지)"
+    "value": "전문적으로 다듬은 조건 요약 (예: 학폭 심의건수 연간 5건 이상)",
+    "desc": "이 조건이 뭘 확인하는지 (예: 해당 연도 학교폭력 심의 건수)"
   }},
-  "secondary_condition": {{
-    "label": "보조 조건",
-    "value": "조건 요약 (예: 교원수 변동 5% 이내)",
-    "desc": "설명 (예: 교원수가 크게 안 변했는지)"
-  }},
-  "risk_level": 1~3 중 정수 (3=학생안전/재정, 2=자원배분, 1=통계참고),
-  "risk_name": "위험 분류명 (예: 자원 배분, 재정 연동, 학생 안전)"
+  "secondary_condition": null 또는 {{"label": "보조 조건", "value": "...", "desc": "..."}},
+  "risk_level": 1~3 (3=학생안전, 2=자원배분/재정, 1=통계참고),
+  "risk_name": "위험 분류 (학생 안전, 자원 배분, 재정 연동 등)"
 }}"""
 
     try:
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
+            config={"temperature": 0},
         )
         text = response.text.strip()
 
@@ -1160,29 +1177,90 @@ async def rulelab(req: RuleLabRequest):
                 result_df = local_ns.get("result_df", pd.DataFrame())
 
                 if isinstance(result_df, pd.DataFrame) and not result_df.empty:
-                    for _, row in result_df.head(15).iterrows():
+                    used_cols = parsed.get("columns_used", [])[:4]
+                    for _, row in result_df.head(20).iterrows():
+                        detail_parts = []
+                        for c in used_cols:
+                            if c in row.index:
+                                v = row[c]
+                                label = {
+                                    "bullying_cases":"심의건수","bullying_victims":"피해학생","bullying_perpetrators":"가해학생",
+                                    "student_count":"학생수","teacher_count":"교원수","students_per_class":"학급당학생수",
+                                    "meal_cost_per_student":"1인당급식비","budget_revenue":"세입","graduation_rate":"진학률",
+                                }.get(c, c)
+                                if isinstance(v, float):
+                                    detail_parts.append(f"{label} <b>{v:.1f}</b>")
+                                else:
+                                    detail_parts.append(f"{label} <b>{v}</b>")
                         results.append({
                             "school": str(row.get("school_name", "")),
                             "year": str(row.get("year", "")),
-                            "detail": " · ".join(f"{c}={row[c]}" for c in parsed.get("columns_used", [])[:3] if c in row.index),
+                            "detail": " / ".join(detail_parts),
                         })
             except Exception as e:
                 return {
-                    "interpretation": interpretation,
-                    "code": code,
+                    **parsed,
                     "results": [],
                     "message": f"코드 실행 중 오류: {str(e)[:100]}. 조건을 다시 설명해주세요.",
                 }
 
         return {
-            "interpretation": interpretation,
-            "code": code,
+            **parsed,
             "results": results,
             "message": f"210교 중 {len(results)}교 탐지" if results else "조건에 해당하는 학교가 없습니다.",
         }
 
     except Exception as e:
         return {"error": f"AI 호출 실패: {str(e)[:100]}"}
+
+
+class RuleLabRerunRequest(BaseModel):
+    code: str
+    columns_used: list = []
+
+@app.post("/api/rulelab/rerun")
+async def rulelab_rerun(req: RuleLabRerunRequest):
+    """샌드박스 코드 재실행 — 임계값 수정 후 조건 적용."""
+    df = app_state.get("df", pd.DataFrame())
+    if df.empty:
+        return {"error": "데이터가 로드되지 않았습니다."}
+
+    results = []
+    try:
+        local_ns = {"df": df.copy(), "pd": pd, "np": __import__("numpy")}
+        exec(req.code, {"__builtins__": {}}, local_ns)
+        result_df = local_ns.get("result_df", pd.DataFrame())
+
+        if isinstance(result_df, pd.DataFrame) and not result_df.empty:
+            used_cols = req.columns_used[:4]
+            col_labels = {
+                "bullying_cases":"심의건수","bullying_victims":"피해학생","bullying_perpetrators":"가해학생",
+                "student_count":"학생수","teacher_count":"교원수","students_per_class":"학급당학생수",
+                "meal_cost_per_student":"1인당급식비","budget_revenue":"세입","graduation_rate":"진학률",
+                "student_count_yoy":"학생수변동률","teacher_count_yoy":"교원수변동률",
+            }
+            for _, row in result_df.head(20).iterrows():
+                detail_parts = []
+                for c in used_cols:
+                    if c in row.index:
+                        v = row[c]
+                        label = col_labels.get(c, c)
+                        if isinstance(v, float):
+                            detail_parts.append(f"{label} <b>{v:.1f}</b>")
+                        else:
+                            detail_parts.append(f"{label} <b>{v}</b>")
+                results.append({
+                    "school": str(row.get("school_name", "")),
+                    "year": str(row.get("year", "")),
+                    "detail": " / ".join(detail_parts),
+                })
+    except Exception as e:
+        return {"results": [], "message": f"코드 실행 오류: {str(e)[:100]}"}
+
+    return {
+        "results": results,
+        "message": f"210교 중 {len(results)}교 탐지" if results else "조건에 해당하는 학교가 없습니다.",
+    }
 
 
 # ── 한국어 명칭 매핑 ──
