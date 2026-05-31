@@ -1054,28 +1054,44 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
    5) AI fab 약간 강조    6) 6박스 본문/비교표 숫자 +1px
    =========================================================== */
 
-/* (1) 챗봇: 우하단 플로팅 카드 (적당한 크기, 완전 불투명).
-    직전 9810078의 0.92 반투명은 뒤가 비쳐 지저분 → 제거.
-    크기는 콘텐츠 전체를 안 덮을 정도(400×560). */
+/* (1) 챗봇: 우하단 플로팅 카드 + CSS resize + 평소 투명/active 또렷.
+    - 기본 크기 400×560, 사용자가 모서리 드래그로 크기 조절(resize:both)
+    - 평소 opacity .45(뒤 콘텐츠 비쳐 안 가림), hover/focus-within 시 opacity 1
+    - 옵션: 답변 영역 가독성은 hover/focus-within 트리거로 보완 — 사용자가
+      마우스를 갖다대거나 입력창에 포커스를 두면 즉시 또렷해짐 */
 .chat-panel{
   top: auto;
   left: auto;
   right: 24px;
   bottom: 24px;
   width: 400px;
-  max-width: calc(100vw - 32px);
   height: 560px;
+  min-width: 320px;
+  min-height: 380px;
+  max-width: calc(100vw - 32px);
   max-height: calc(100vh - 96px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: 0 16px 40px rgba(15,42,74,0.22);
+  resize: both;
+  overflow: auto;
+  opacity: 0.45;
+  transition: opacity .2s ease;
 }
-/* 좁은 화면(≤768px) — 거의 전체화면 */
+/* active — 패널 hover or 내부 입력창 포커스 → 완전 또렷 */
+.chat-panel:hover,
+.chat-panel:focus-within{
+  opacity: 1;
+}
+/* 좁은 화면(≤768px) — 거의 전체화면, 항상 또렷 */
 @media(max-width:768px){
   .chat-panel{
     right: 8px; bottom: 8px; left: 8px;
     width: auto; max-width: none;
     height: auto; max-height: calc(100vh - 16px);
+    min-width: 0; min-height: 0;
+    resize: none;
+    opacity: 1;
   }
 }
 
@@ -1127,82 +1143,8 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .sd-summary-card .sdc-num{ font-size:21px; }
 .sd-summary-card.lead .sdc-num{ font-size:25px; }
 
-/* ===========================================================
-   2026-05-31 (2) 서울 고등학교 필터 — 세로 사이드바 → 가로 전체폭.
-   .dash-grid를 2-col(목록+stats)로 두고 .filter-panel을 위로 전체폭 이동.
-   필터 내부 .filter-section 4개는 grid auto-fit으로 가로 나열 + 자동 줄바꿈.
-   필터링 로직(onclick)·HTML 마크업 무수정 — CSS만.
-   =========================================================== */
-.dash-grid{
-  grid-template-columns: 1fr 280px;
-  grid-template-areas:
-    "filter filter"
-    "list   stats";
-}
-.dash-grid .filter-panel{
-  grid-area: filter;
-  position: static !important;   /* 상단 sticky 해제 */
-  max-height: none;
-  overflow: visible;
-  padding: 6px 8px 8px;
-}
-.dash-grid .list-area{ grid-area: list; }
-.dash-grid .stats-panel{ grid-area: stats; }
-
-/* 필터 헤더는 전체 폭 유지, 그 아래 섹션들 grid로 가로 나열 */
-.filter-panel{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  column-gap: 8px;
-  row-gap: 4px;
-}
-.filter-panel > .filter-panel-head{
-  grid-column: 1 / -1;
-}
-.filter-panel > .filter-section{
-  border-bottom: none;
-  border-right: 1px dashed var(--border-light);
-  padding: 8px 12px;
-}
-.filter-panel > .filter-section:last-child{
-  border-right: none;
-}
-/* 가로 배치에서 세로 칸막이가 줄바꿈 후엔 부자연스러우니, 끝 칸막이만 자연 제거.
-   추가로 마지막 행 항목들에 border-right 노출되는 것은 시각적으로 OK (구분선). */
-
-/* 좁은 화면 — 1182~1024px 사이는 2-col, 그 아래는 1-col.
-   기존 1180px 블록의 stats-panel 내부 2-col(display:grid;1.3fr 1fr) override 복구. */
-@media(max-width:1180px){
-  .dash-grid{
-    grid-template-columns: 1fr 240px;
-    grid-template-areas:
-      "filter filter"
-      "list   stats";
-  }
-  .dash-grid .stats-panel{
-    grid-column: auto;
-    display: block;
-    grid-template-columns: none;
-    margin-top: 0;
-  }
-}
-@media(max-width:1024px){
-  .dash-grid{
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "filter"
-      "list"
-      "stats";
-  }
-}
-@media(max-width:768px){
-  .filter-panel{ grid-template-columns: 1fr; }
-  .filter-panel > .filter-section{
-    border-right: none;
-    border-bottom: 1px solid var(--border-light);
-  }
-  .filter-panel > .filter-section:last-child{ border-bottom: none; }
-}
+/* (필터 가로 레이아웃 블록은 사용자 요청으로 제거 — 원래 좌측 세로 사이드바로 복귀.
+    기존 600~602행의 .dash-grid 3-col(240px / 1fr / 280px) 룰이 그대로 살아 자동 복원.) */
 
 /* ===========================================================
    2026-05-31 — 표 / 배지 정리
