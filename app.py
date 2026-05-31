@@ -184,15 +184,23 @@ COL_KO = {
 
 def _rename_cols_ko(data_list: list) -> list:
     """결과 데이터의 영어 컬럼명을 한국어로 변환.
-    LLM이 만든 groupby/pivot 결과는 컬럼명이 int(연도)인 경우가 있어 str 변환 후 처리."""
+    LLM이 만든 groupby/pivot 결과는 컬럼명이 int(연도)인 경우가 있어 str 변환 후 처리.
+    *_dist_mean·*_dist_median은 동료군 비교용으로 노출(접미사 라벨 부여)."""
     result = []
     for row in data_list:
         new_row = {}
         for k, v in row.items():
             ks = str(k)
-            if ks.endswith("_dist_mean") or ks.endswith("_dist_median") or ks.startswith("school_name_"):
+            if ks.startswith("school_name_"):
                 continue
-            ko = COL_KO.get(ks, ks)
+            if ks.endswith("_dist_mean"):
+                base = ks[:-len("_dist_mean")]
+                ko = COL_KO.get(base, base) + "(동료군 평균)"
+            elif ks.endswith("_dist_median"):
+                base = ks[:-len("_dist_median")]
+                ko = COL_KO.get(base, base) + "(동료군 중앙값)"
+            else:
+                ko = COL_KO.get(ks, ks)
             new_row[ko] = v
         result.append(new_row)
     return result
@@ -630,8 +638,19 @@ async def _chat_explore_impl(req: ChatRequest):
         except Exception as e:
             print(f"[WARN] _extract_rule_context 실패(무시): {e}")
             rule_ctx = None
+    # 학교 상세 챗봇 — 그 학교의 메타·점수·탐지 룰을 LLM에 명시.
+    # "유사학교?" / "왜 검토대상?" / "1분 브리핑" 같은 짧은 맥락 의존 질의가
+    # 학교 컨텍스트 없이 의도를 못 잡고 fallback으로 떨어지지 않도록.
+    school_ctx = None
+    if req.school_code:
+        try:
+            school_ctx = _build_school_context(req.school_code, df_full, scores, detections)
+        except Exception as e:
+            print(f"[WARN] _build_school_context 실패(무시): {e}")
+            school_ctx = None
     try:
-        plan = _get_analysis_plan(client, req.query, columns_desc, req.history, rule_context=rule_ctx)
+        plan = _get_analysis_plan(client, req.query, columns_desc, req.history,
+                                  rule_context=rule_ctx, school_context=school_ctx)
     except GeminiError as e:
         print(f"[WARN] chat plan Gemini 실패: {e}")
         _log_route("fallback_help", req.query)
@@ -654,10 +673,40 @@ async def _chat_explore_impl(req: ChatRequest):
     try:
         result_df = safe_execute(code, df)
     except Exception as e:
-        # 코드 생성은 됐는데 실행 단계 실패 — 안내 응답으로 (기본 데이터표 X)
+        # 코드 실행 실패 — LLM이 매번 다른 형태로 잘못된 코드를 만드는 비결정성.
+        # 안전 폴백 우선순위:
+        #   (1) 학교 상세: 그 학교 최신 1행으로 채워 report 텍스트로 답변
+        #   (2) rule_context 있음: schools 상위 N행을 fallback으로 (멀티턴 후속 '그 중 1위' 등)
+        # 둘 다 안 되면 안내 응답.
         print(f"[WARN] pandas_code 실행 실패: {e}")
-        _log_route("fallback_help", req.query)
-        return ChatResponse(**_build_fallback_help_response())
+        fallback_df = None
+        if req.school_code and not df.empty:
+            try:
+                fallback_df = df.sort_values("year").tail(1).copy()
+                plan["analysis_plan"] = (plan.get("analysis_plan") or "") + " (코드 실행 실패 → 학교 최신 1행 안전 폴백)"
+            except Exception as e2:
+                print(f"[WARN] school 폴백 1행 추출 실패: {e2}")
+        elif rule_ctx and (rule_ctx.get("schools") or []):
+            try:
+                schools = rule_ctx["schools"]
+                codes = [s["school_code"] for s in schools[:5]]
+                fb = df_full[df_full["school_code"].astype(str).isin([str(c) for c in codes])]
+                if not fb.empty:
+                    fb = fb.sort_values(["school_code", "year"]).groupby("school_code", as_index=False).tail(1)
+                    code_order = {str(c): i for i, c in enumerate(codes)}
+                    fb = fb.assign(_ord=fb["school_code"].astype(str).map(code_order)).sort_values("_ord").drop(columns=["_ord"])
+                    if scores is not None and not scores.empty and "score" not in fb.columns:
+                        fb = fb.merge(scores[["school_code","score","rank"]], on="school_code", how="left")
+                    fallback_df = fb
+                    plan["analysis_plan"] = (plan.get("analysis_plan") or "") + " (코드 실행 실패 → 룰 컨텍스트 상위 학교 안전 폴백)"
+            except Exception as e2:
+                print(f"[WARN] rule_context 폴백 실패: {e2}")
+        if fallback_df is not None and not fallback_df.empty:
+            result_df = fallback_df
+            plan["confidence"] = "중간"
+        else:
+            _log_route("fallback_help", req.query)
+            return ChatResponse(**_build_fallback_help_response())
 
     # ── 3단계: 결과 정리 (가명 컬럼 제거) ──
     is_empty_df = isinstance(result_df, pd.DataFrame) and result_df.empty
@@ -2998,6 +3047,116 @@ def _explain_with_gemini(client, detections_df, school_df) -> str:
     return _call_gemini(client, prompt)
 
 
+def _build_school_context(school_code: str, df_full: pd.DataFrame,
+                          scores: pd.DataFrame, detections: pd.DataFrame) -> dict | None:
+    """학교 상세 챗봇용 — 그 학교의 메타·최신 지표·종합점수·탐지 룰 요약.
+    LLM이 '유사학교/왜 검토대상/1분 브리핑' 같은 맥락 의존 질의에 답할 근거를 제공."""
+    if not school_code or df_full is None or df_full.empty:
+        return None
+    sdf = df_full[df_full["school_code"].astype(str) == str(school_code)]
+    if sdf.empty:
+        return None
+    latest = sdf.sort_values("year").tail(1).iloc[0]
+    out = {
+        "school_code": str(school_code),
+        "school_name": str(latest.get("school_name", "")),
+        "district": str(latest.get("district", "")),
+        "school_type": str(latest.get("school_type", "")),
+        "year_latest": int(latest.get("year", 0)) if pd.notna(latest.get("year")) else None,
+        "student_count": int(latest["student_count"]) if pd.notna(latest.get("student_count")) else None,
+        "class_count": int(latest["class_count"]) if pd.notna(latest.get("class_count")) else None,
+        "teacher_count": int(latest["teacher_count"]) if pd.notna(latest.get("teacher_count")) else None,
+    }
+    # 종합점수·순위
+    if scores is not None and not scores.empty:
+        sc = scores[scores["school_code"].astype(str) == str(school_code)]
+        if not sc.empty:
+            r = sc.iloc[0]
+            out["score"] = float(r.get("score")) if pd.notna(r.get("score")) else None
+            out["rank"] = int(r.get("rank")) if pd.notna(r.get("rank")) else None
+            out["num_detections"] = int(r.get("num_detections", 0))
+            out["num_categories"] = int(r.get("num_categories", 0))
+    # 탐지 룰 요약 (상위 8)
+    rules_brief: list = []
+    if detections is not None and not detections.empty:
+        det = detections[detections["school_code"].astype(str) == str(school_code)].copy()
+        if not det.empty:
+            if "s_r" in det.columns:
+                det["s_r"] = pd.to_numeric(det["s_r"], errors="coerce").fillna(0)
+            det = det.sort_values("s_r", ascending=False)
+            seen = set()
+            for _, r in det.iterrows():
+                rid = str(r.get("rule_id", ""))
+                if not rid or rid in seen:
+                    continue
+                seen.add(rid)
+                rules_brief.append({
+                    "rule_id": rid,
+                    "rule_name": RULE_NAMES_KO.get(rid, rid),
+                    "year": int(r.get("year", 0)) if pd.notna(r.get("year")) else None,
+                    "s_r": round(float(r.get("s_r", 0)), 2),
+                })
+                if len(rules_brief) >= 8:
+                    break
+    out["rules"] = rules_brief
+    return out
+
+
+def _format_school_context(ctx: dict) -> str:
+    """학교 상세 챗봇용 prompt 단락. df는 그 학교 행들만 담고 있다는 전제 명시."""
+    if not ctx or not ctx.get("school_code"):
+        return ""
+    parts = ["[학교 컨텍스트] 사용자는 학교 상세 화면에서 다음 학교에 대해 묻고 있다."]
+    parts.append(
+        f"- 학교: {ctx.get('school_name','')} ({ctx.get('district','')}구, "
+        f"{ctx.get('school_type','')}, 코드 {ctx.get('school_code','')})"
+    )
+    yl = ctx.get("year_latest")
+    stu = ctx.get("student_count")
+    cls = ctx.get("class_count")
+    tch = ctx.get("teacher_count")
+    if yl:
+        parts.append(f"- 최신 연도({yl}): 학생수 {stu if stu is not None else '-'} · "
+                     f"학급수 {cls if cls is not None else '-'} · 교원수 {tch if tch is not None else '-'}")
+    sc = ctx.get("score")
+    rk = ctx.get("rank")
+    if sc is not None:
+        parts.append(f"- 검토 우선도 지수: {sc:.1f} (전체 순위 {rk}위, "
+                     f"검토 신호 {ctx.get('num_detections',0)}건, "
+                     f"카테고리 {ctx.get('num_categories',0)}개)")
+    rules = ctx.get("rules") or []
+    if rules:
+        parts.append("- 이 학교 탐지 룰 (s_r 내림차순, 상위 {0}건):".format(len(rules)))
+        for r in rules:
+            parts.append(f"  · {r['rule_id']} {r['rule_name']} (연도 {r.get('year','-')}, s_r {r['s_r']:.2f})")
+    parts.append("")
+    parts.append("[df 구조] df는 이 학교의 2023~2025년 행만 담는다(최대 3행).")
+    parts.append("[지시]")
+    parts.append("- '유사학교/동료군/비교' 질의 → 같은 행 안의 *_dist_mean 컬럼이 이미 같은 구·연도의 평균(transform).")
+    parts.append("  자기 값(student_count 등) vs 같은 행의 _dist_mean을 비교해 결과 DataFrame을 만든다. 다른 학교 row를 찾지 말 것.")
+    parts.append("- '왜 검토 대상/검토 신호/이유' 질의 → 위 '이 학교 탐지 룰' 목록을 근거로 plan·report 작성.")
+    parts.append("- '1분 브리핑/요약' 질의 → 학생수·학급·교원·검토 우선도·대표 신호 한 문단 요약. result는 df.tail(1) 등으로 최소 1행 DataFrame.")
+    parts.append("- result는 항상 DataFrame이어야 한다 (빈 결과 안 됨).")
+    parts.append("[주의] 위 '이 학교 탐지 룰' 목록의 rule_id·rule_name·s_r은 prompt 컨텍스트일 뿐 df 컬럼이 아니다. "
+                 "df에 없는 컬럼(특히 's_r','rule_id','rule_name')을 코드에서 호출 금지 — KeyError 발생. "
+                 "이런 정보를 인용하려면 plan/report 텍스트에서 직접 언급하되 result는 df의 실제 컬럼으로만 만든다.")
+    parts.append("")
+    parts.append("[코드 예시 — 그대로 변형해 사용]")
+    parts.append("# 유사학교/동료군 비교")
+    parts.append("# latest = df.sort_values('year').tail(1)")
+    parts.append("# cols = ['student_count','class_count','teacher_count','students_per_class','students_per_teacher']")
+    parts.append("# rows = []")
+    parts.append("# for c in cols:")
+    parts.append("#     dm = c + '_dist_mean'")
+    parts.append("#     if dm in latest.columns:")
+    parts.append("#         rows.append({'지표': c, '본교': latest[c].iloc[0], '동료군 평균': latest[dm].iloc[0]})")
+    parts.append("# result = pd.DataFrame(rows)")
+    parts.append("")
+    parts.append("# 1분 브리핑 / 왜 검토 대상 — 학교 메타 + 최신 지표")
+    parts.append("# result = df.sort_values('year').tail(1)[['school_name','district','school_type','year','student_count','class_count','teacher_count','score','rank']]")
+    return "\n".join(parts)
+
+
 def _format_rule_context(ctx: dict) -> str:
     """rule_lookup 컨텍스트(룰+학교)를 LLM prompt용 단락으로 직렬화.
     LLM이 추측하지 않고 주어진 학교 목록 위에서만 조건을 적용하도록 강제."""
@@ -3030,18 +3189,25 @@ def _format_rule_context(ctx: dict) -> str:
         parts.append("사용자 추가 조건(학생수/연도/지역/정렬)에 맞춰 위 목록을 필터·정렬해서 답하라.")
         parts.append("[컬럼 매핑] '점수'·'우선도'·'순위' 질의는 df['score'] / df['rank'] 사용. "
                      "위 학교 목록의 school_code 집합으로 먼저 필터한 뒤 df['score'] 내림차순.")
+        parts.append("[주의] 위 표의 max_sr·학교종합점수·탐지연도는 prompt 컨텍스트일 뿐 df 컬럼이 아니다. "
+                     "df에 없는 컬럼(특히 'max_sr','s_r','rule_id','rule_ids','rule_name','rule_names','school_score')을 코드에서 호출 금지 — KeyError 발생. "
+                     "df의 실제 컬럼만 사용: df['score']·df['rank']·df['student_count']·df['district'] 등.")
     else:
         parts.append("\n[참고] 이 룰의 표본 안 탐지는 0건이다. 외부 지식으로 추측 답변 금지.")
     return "\n".join(parts)
 
 
 def _get_analysis_plan(client, query: str, columns: dict, history: list,
-                       rule_context: dict | None = None) -> dict:
+                       rule_context: dict | None = None,
+                       school_context: dict | None = None) -> dict:
     cols_text = "\n".join(f"- {k}: {v}" for k, v in columns.items())
     history_text = "\n".join(f"Q: {h.get('query','')} → {h.get('summary','')}" for h in history[-3:]) if history else "없음"
 
     ctx_block = _format_rule_context(rule_context) if rule_context else ""
     ctx_section = f"\n\n{ctx_block}\n" if ctx_block else ""
+
+    school_block = _format_school_context(school_context) if school_context else ""
+    school_section = f"\n\n{school_block}\n" if school_block else ""
 
     prompt = f"""사용자 질문을 분석하여 pandas DataFrame 분석 계획을 JSON으로 작성하세요.
 
@@ -3049,7 +3215,7 @@ def _get_analysis_plan(client, query: str, columns: dict, history: list,
 {cols_text}
 
 [이전 대화]
-{history_text}{ctx_section}
+{history_text}{ctx_section}{school_section}
 
 [사용자 질문]
 {query}
@@ -3065,12 +3231,13 @@ def _get_analysis_plan(client, query: str, columns: dict, history: list,
 }}
 
 pandas_code 규칙:
-- 결과를 반드시 result 변수에 할당
+- 결과를 반드시 result 변수(pandas DataFrame)에 할당
 - df 변수 사용 (pd, np 사용 가능)
 - import 금지, 파일 I/O 금지
 - 최대 10줄 이내
 - NaN 처리: .dropna() 또는 .fillna() 사용
-- 룰 컨텍스트가 있으면 그 컨텍스트의 school_code 집합만 대상으로 필터 (df[df['school_code'].isin([...])]) 후 추가 조건 적용"""
+- 룰 컨텍스트가 있으면 그 컨텍스트의 school_code 집합만 대상으로 필터 (df[df['school_code'].isin([...])]) 후 추가 조건 적용
+- 학교 컨텍스트가 있으면 df는 그 학교 행만 담고 있다. '유사학교/동료군' 질의는 같은 행 안의 *_dist_mean 컬럼(같은 구·연도 평균)과 자기 값을 비교 — 다른 학교 row를 찾지 말 것. result는 항상 DataFrame (최소한 학교 최신 1행이라도)."""
 
     text = _call_gemini(client, prompt, SYSTEM_PROMPT + "\n\n반드시 JSON 형식으로만 응답하세요. 마크다운 코드블록 없이 순수 JSON만.")
 

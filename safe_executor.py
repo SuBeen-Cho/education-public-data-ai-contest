@@ -77,14 +77,6 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
     # 2. DataFrame 복사 (원본 보호)
     safe_df = df.copy()
 
-    # 3. 제한된 실행 환경
-    local_vars = {
-        "df": safe_df,
-        "pd": pd,
-        "np": np,
-        "result": None,
-    }
-
     restricted_builtins = {
         "len": len, "range": range, "enumerate": enumerate,
         "zip": zip, "map": map, "filter": filter,
@@ -97,6 +89,17 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
         "print": lambda *a, **kw: None,  # print 무시
     }
 
+    # 3. 제한된 실행 환경 — globals와 locals를 같은 dict로 통합.
+    # 분리하면 lambda·list comprehension 같은 nested scope에서 globals만 보이고
+    # np/pd가 locals에만 있어 NameError 발생. exec 단일 namespace로 회피.
+    env = {
+        "__builtins__": restricted_builtins,
+        "df": safe_df,
+        "pd": pd,
+        "np": np,
+        "result": None,
+    }
+
     # 4. 타임아웃 설정 (Unix only)
     try:
         old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
@@ -106,7 +109,7 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
 
     # 5. 실행
     try:
-        exec(code, {"__builtins__": restricted_builtins}, local_vars)
+        exec(code, env)
     except TimeoutError:
         raise
     except SecurityError:
@@ -123,7 +126,7 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
             pass
 
     # 6. 결과 반환 — 정책: result 변수 명시 할당만 인정. 폴백 모두 폐기.
-    result = local_vars.get("result")
+    result = env.get("result")
     if result is None:
         # 정책: "마지막 DataFrame 검색" + "전체 df 반환" fallback 모두 폐기.
         # result 미정의 = "코드는 실행됐지만 결과를 받지 못한" 실패 상황.
