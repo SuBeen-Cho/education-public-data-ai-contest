@@ -19,30 +19,120 @@ class TimeoutError(Exception):
     pass
 
 
-# 금지 패턴
+# 금지 패턴 (텍스트 레벨 1차 방어 — SafeNamespace가 2차 방어)
 BLOCKED_PATTERNS = [
     r'\bimport\b', r'\bexec\b', r'\beval\b', r'\bopen\b',
     r'\bos\.', r'\bsys\.', r'\bsubprocess\b',
     r'__\w+__', r'\bglobals\b', r'\blocals\b',
     r'\bcompile\b', r'\bgetattr\b', r'\bsetattr\b',
     r'\bdelattr\b', r'\bbreakpoint\b',
-    r'\.to_csv\b', r'\.to_excel\b', r'\.to_sql\b',  # 파일 쓰기 금지
-    r'\bdrop\b.*\binplace\b',  # inplace 변경 금지
+    # 파일 I/O — DataFrame.to_<I/O> 메서드 호출은 텍스트로 잡는다 (SafeNamespace 못 막음)
+    r'\.to_csv\b', r'\.to_excel\b', r'\.to_sql\b',
+    r'\.to_pickle\b', r'\.to_parquet\b', r'\.to_hdf\b',
+    r'\.to_json\b', r'\.to_clipboard\b', r'\.to_html\b',
+    r'\.to_latex\b', r'\.to_markdown\b', r'\.to_stata\b',
+    r'\.to_xml\b', r'\.to_feather\b', r'\.to_orc\b',
+    r'\.to_records\b',  # ndarray 변환 — to_<X> 패턴 일관성
+    # pandas/numpy I/O 진입점 (SafeNamespace 화이트리스트 누락 대비 보강)
+    r'\bpd\.read_\w+', r'\bpd\.HDFStore\b', r'\bpd\.ExcelFile\b',
+    r'\bpd\.ExcelWriter\b', r'\bpd\.read\b',
+    r'\bnp\.load\b', r'\bnp\.save\b', r'\bnp\.loadtxt\b',
+    r'\bnp\.savetxt\b', r'\bnp\.fromfile\b', r'\bnp\.tofile\b',
+    r'\bnp\.genfromtxt\b', r'\bnp\.memmap\b',
+    # inplace 변경 금지
+    r'\bdrop\b.*\binplace\b',
 ]
 
-# 허용 pandas 메서드
-ALLOWED_METHODS = {
-    'groupby', 'filter', 'query', 'describe', 'mean', 'median',
-    'std', 'quantile', 'value_counts', 'sort_values', 'head', 'tail',
-    'merge', 'concat', 'pivot_table', 'agg', 'apply', 'transform',
-    'nlargest', 'nsmallest', 'unique', 'nunique', 'count', 'sum',
-    'min', 'max', 'idxmin', 'idxmax', 'corr', 'cov',
-    'rolling', 'shift', 'diff', 'pct_change', 'rank',
-    'isin', 'between', 'isna', 'notna', 'fillna', 'dropna',
-    'astype', 'copy', 'reset_index', 'set_index',
-    'rename', 'iloc', 'loc', 'assign', 'where', 'mask',
-    'abs', 'round', 'clip',
-}
+# pd 화이트리스트 — 분석에서 실제 쓰이는 안전한 진입점만.
+# read_*/HDFStore/ExcelFile 등 I/O는 의도적으로 제외.
+PD_WHITELIST = frozenset([
+    # 자료구조 생성자
+    "DataFrame", "Series", "Index", "MultiIndex", "RangeIndex",
+    "Categorical", "CategoricalIndex", "DatetimeIndex", "TimedeltaIndex",
+    "PeriodIndex", "IntervalIndex", "Interval", "Period",
+    "Timestamp", "Timedelta",
+    # 결합·재구성
+    "concat", "merge", "merge_asof", "merge_ordered", "join",
+    "melt", "pivot", "pivot_table", "crosstab", "wide_to_long",
+    "get_dummies", "from_dummies",
+    # 변환
+    "to_numeric", "to_datetime", "to_timedelta",
+    # null 체크
+    "isna", "isnull", "notna", "notnull",
+    # 시계열·구간
+    "date_range", "timedelta_range", "period_range", "interval_range",
+    "cut", "qcut",
+    # 유틸
+    "factorize", "unique", "value_counts", "array",
+    # 상수
+    "NA", "NaT",
+])
+
+# np 화이트리스트
+NP_WHITELIST = frozenset([
+    # 통계
+    "mean", "median", "std", "var", "sum", "prod",
+    "min", "max", "percentile", "quantile", "average",
+    "ptp", "corrcoef", "cov", "histogram", "bincount",
+    # 조건·비교
+    "where", "select", "choose", "clip",
+    "maximum", "minimum", "fmax", "fmin",
+    "isnan", "isinf", "isfinite", "isclose", "allclose",
+    "isin", "all", "any", "logical_and", "logical_or", "logical_not", "logical_xor",
+    # 수학
+    "abs", "absolute", "sign", "log", "log1p", "log2", "log10",
+    "exp", "expm1", "sqrt", "square", "power", "reciprocal",
+    "floor", "ceil", "trunc", "round", "rint", "fix",
+    "add", "subtract", "multiply", "divide", "mod", "remainder",
+    # 배열 생성
+    "array", "asarray", "ones", "zeros", "empty", "full",
+    "ones_like", "zeros_like", "empty_like", "full_like",
+    "arange", "linspace", "logspace", "eye", "identity",
+    # 정렬·검색
+    "sort", "argsort", "argmax", "argmin", "argwhere",
+    "searchsorted", "unique", "nonzero",
+    # 누적·차분
+    "cumsum", "cumprod", "diff", "gradient",
+    # 변환·재구성
+    "concatenate", "stack", "vstack", "hstack", "column_stack",
+    "split", "reshape", "transpose",
+    "nan_to_num",
+    # dtype·상수
+    "float64", "float32", "int64", "int32", "int16", "int8",
+    "uint64", "uint32", "uint16", "uint8", "bool_", "object_",
+    "nan", "NaN", "inf", "Inf", "pi", "e",
+    "newaxis",
+])
+
+
+class SafeNamespace:
+    """모듈을 화이트리스트로 감싸 허용 속성만 노출.
+    pd.read_csv 같은 I/O 진입점을 차단. lambda·comprehension에서도 보임.
+    """
+    __slots__ = ("_mod", "_wl", "_name")
+
+    def __init__(self, mod, whitelist, name: str = ""):
+        object.__setattr__(self, "_mod", mod)
+        object.__setattr__(self, "_wl", whitelist)
+        object.__setattr__(self, "_name", name or getattr(mod, "__name__", "module"))
+
+    def __getattr__(self, item):
+        # __slots__ 멤버나 dunder는 정상 처리되도록 SafeNamespace 자신은 가짐.
+        if item.startswith("_") and item.endswith("_") and item not in self._wl:
+            raise AttributeError(f"'{self._name}.{item}' is not allowed in sandbox")
+        if item not in self._wl:
+            raise SecurityError(f"'{self._name}.{item}' is not in the sandbox whitelist (blocked)")
+        return getattr(self._mod, item)
+
+    def __setattr__(self, key, value):
+        raise SecurityError(f"sandbox '{self._name}' is read-only (set '{key}' blocked)")
+
+    def __dir__(self):
+        return sorted(self._wl)
+
+    def __repr__(self):
+        return f"<SafeNamespace {self._name} whitelist={len(self._wl)} items>"
+
 
 TIMEOUT_SECONDS = 5
 
@@ -92,11 +182,14 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
     # 3. 제한된 실행 환경 — globals와 locals를 같은 dict로 통합.
     # 분리하면 lambda·list comprehension 같은 nested scope에서 globals만 보이고
     # np/pd가 locals에만 있어 NameError 발생. exec 단일 namespace로 회피.
+    # pd/np는 SafeNamespace로 감싸 read_csv·read_excel·HDFStore 등 I/O 진입점 차단.
+    safe_pd = SafeNamespace(pd, PD_WHITELIST, name="pd")
+    safe_np = SafeNamespace(np, NP_WHITELIST, name="np")
     env = {
         "__builtins__": restricted_builtins,
         "df": safe_df,
-        "pd": pd,
-        "np": np,
+        "pd": safe_pd,
+        "np": safe_np,
         "result": None,
     }
 
@@ -113,8 +206,12 @@ def safe_execute(code: str, df: pd.DataFrame) -> pd.DataFrame:
     except TimeoutError:
         raise
     except SecurityError:
+        # SafeNamespace 차단도 그대로 SecurityError로 전파.
         raise
     except Exception as e:
+        # SafeNamespace의 SecurityError가 다른 예외에 wrap되어 들어올 수 있음 — 원인 검사.
+        if isinstance(e, SecurityError) or "SecurityError" in type(e).__name__:
+            raise
         raise RuntimeError(f"코드 실행 오류: {type(e).__name__}: {e}")
     finally:
         # 타임아웃 해제

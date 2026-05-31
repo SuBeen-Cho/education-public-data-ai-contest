@@ -182,16 +182,30 @@ COL_KO = {
     "teacher_no_inst_yoy": "교원수(강사제외)변동률(%)",
 }
 
+# 사용자 표에 노출 금지 — prompt 컨텍스트 키이거나 내부 식별자.
+# LLM이 결과 DataFrame에 끼워 넣어도 사용자에겐 안 보이게 실제 drop.
+_INTERNAL_COL_BAN = frozenset({
+    "max_sr", "s_r", "school_score",
+    "rule_id", "rule_ids", "rule_name", "rule_names",
+    "rule_name_ko", "guide", "display_key",
+    "school_name_anon",
+    "_ord",
+})
+
+
 def _rename_cols_ko(data_list: list) -> list:
     """결과 데이터의 영어 컬럼명을 한국어로 변환.
     LLM이 만든 groupby/pivot 결과는 컬럼명이 int(연도)인 경우가 있어 str 변환 후 처리.
-    *_dist_mean·*_dist_median은 동료군 비교용으로 노출(접미사 라벨 부여)."""
+    *_dist_mean·*_dist_median은 동료군 비교용으로 노출(접미사 라벨 부여).
+    _INTERNAL_COL_BAN(max_sr·s_r·rule_id 등)은 실제 결과에서 제거."""
     result = []
     for row in data_list:
         new_row = {}
         for k, v in row.items():
             ks = str(k)
             if ks.startswith("school_name_"):
+                continue
+            if ks in _INTERNAL_COL_BAN:
                 continue
             if ks.endswith("_dist_mean"):
                 base = ks[:-len("_dist_mean")]
