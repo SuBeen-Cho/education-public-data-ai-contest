@@ -183,15 +183,16 @@ COL_KO = {
 }
 
 def _rename_cols_ko(data_list: list) -> list:
-    """결과 데이터의 영어 컬럼명을 한국어로 변환"""
+    """결과 데이터의 영어 컬럼명을 한국어로 변환.
+    LLM이 만든 groupby/pivot 결과는 컬럼명이 int(연도)인 경우가 있어 str 변환 후 처리."""
     result = []
     for row in data_list:
         new_row = {}
         for k, v in row.items():
-            # _dist_mean 등 내부 컬럼 제거
-            if k.endswith("_dist_mean") or k.endswith("_dist_median") or k.startswith("school_name_"):
+            ks = str(k)
+            if ks.endswith("_dist_mean") or ks.endswith("_dist_median") or ks.startswith("school_name_"):
                 continue
-            ko = COL_KO.get(k, k)
+            ko = COL_KO.get(ks, ks)
             new_row[ko] = v
         result.append(new_row)
     return result
@@ -591,6 +592,18 @@ async def _chat_explore_impl(req: ChatRequest):
         if df.empty:
             _log_route("fallback_help", req.query)
             return _chat_fallback_response(f"학교 코드 {req.school_code}의 데이터를 찾지 못했습니다.", req.query)
+
+    # 학교 종합점수(score)·순위(rank)는 별도 scores 테이블에 있어 df에 없다.
+    # 멀티턴 후속("그 중 점수 제일 높은")에서 LLM이 df['score']로 코드 만들면 KeyError 발생.
+    # → LLM 실행용 df에 scores를 left-merge해서 'score'·'rank' 노출 (원본 df_full은 미오염).
+    if scores is not None and not scores.empty and "score" not in df.columns:
+        try:
+            df = df.merge(
+                scores[["school_code", "score", "rank"]],
+                on="school_code", how="left",
+            )
+        except Exception as e:
+            print(f"[WARN] scores merge into df 실패(무시): {e}")
 
     columns_desc = app_state.get("columns", {})
     client = app_state.get("gemini")
@@ -1439,9 +1452,18 @@ _LOOKUP_COMPLEX_HINTS = (
 _LOOKUP_YEAR_RE = re.compile(r"\b20\d{2}\b")
 # 후속 지시어 — 직전 턴 컨텍스트를 이어받는 표현. priority 가로채기 방지용.
 _FOLLOWUP_REFERRERS = (
-    "그 중", "그중", "그 중에서", "그중에서", "그것 중", "그것들 중",
+    # "그 중/그중" — 조사·종결 변형
+    "그 중", "그중",
+    # "이 중/이중"
+    "이 중", "이중",
+    # "그것/그것들/그 학교(들)"
+    "그것 중", "그것들 중", "그 학교 중", "그 학교들 중",
+    "그 학교에서", "그 학교들에서",
+    # 위치 지시
     "거기서", "거기에서", "거기 중",
-    "이 중", "이중", "이중에서",
+    "위에서", "방금", "조금 전",
+    # "이것/이것들"
+    "이것 중", "이것들 중",
 )
 
 
@@ -3006,6 +3028,8 @@ def _format_rule_context(ctx: dict) -> str:
         parts.append("")
         parts.append("[지시] 위 학교 목록만 사용하라. 룰 식별자를 지역/지표로 오해하지 말 것.")
         parts.append("사용자 추가 조건(학생수/연도/지역/정렬)에 맞춰 위 목록을 필터·정렬해서 답하라.")
+        parts.append("[컬럼 매핑] '점수'·'우선도'·'순위' 질의는 df['score'] / df['rank'] 사용. "
+                     "위 학교 목록의 school_code 집합으로 먼저 필터한 뒤 df['score'] 내림차순.")
     else:
         parts.append("\n[참고] 이 룰의 표본 안 탐지는 0건이다. 외부 지식으로 추측 답변 금지.")
     return "\n".join(parts)
