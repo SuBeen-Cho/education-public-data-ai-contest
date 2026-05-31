@@ -1054,41 +1054,28 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
    5) AI fab 약간 강조    6) 6박스 본문/비교표 숫자 +1px
    =========================================================== */
 
-/* (1) 챗봇: 우하단 플로팅 복귀 (크게) + 반투명.
-    직전 15b991d의 사이드 풀-하이트 → 본문이 좁아져 표·6박스 텍스트가 깨졌음.
-    body:has() padding-right 룰 제거(원복). 본문은 항상 풀 폭, 챗봇은 그 위에 떠 있음. */
+/* (1) 챗봇: 우하단 플로팅 카드 (적당한 크기, 완전 불투명).
+    직전 9810078의 0.92 반투명은 뒤가 비쳐 지저분 → 제거.
+    크기는 콘텐츠 전체를 안 덮을 정도(400×560). */
 .chat-panel{
   top: auto;
   left: auto;
   right: 24px;
   bottom: 24px;
-  width: 420px;
+  width: 400px;
   max-width: calc(100vw - 32px);
-  height: 600px;
+  height: 560px;
   max-height: calc(100vh - 96px);
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  border-left: 1px solid var(--border);
   box-shadow: 0 16px 40px rgba(15,42,74,0.22);
-  opacity: 0.92;
-  transition: opacity .18s ease, box-shadow .18s ease;
 }
-/* 입력·hover·포커스 시 또렷 + 그림자 강화 */
-.chat-panel:hover,
-.chat-panel:focus-within{
-  opacity: 1;
-  box-shadow: 0 20px 48px rgba(15,42,74,0.28);
-}
-/* 답변 영역(표·텍스트·숫자)은 패널 opacity와 무관하게 항상 또렷.
-    부모 opacity는 자식 상속이지만, 컨텐츠 가독성 위해 글씨 색상·배경은 본래 톤 유지 — 별도 글씨 fade 없음. */
-.chat-messages, .chat-chips, .chat-input-row{ opacity: 1; }
-/* 좁은 화면(≤768px)에선 거의 전체화면 가깝게 */
+/* 좁은 화면(≤768px) — 거의 전체화면 */
 @media(max-width:768px){
   .chat-panel{
     right: 8px; bottom: 8px; left: 8px;
     width: auto; max-width: none;
     height: auto; max-height: calc(100vh - 16px);
-    opacity: 1;
   }
 }
 
@@ -1215,4 +1202,56 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
     border-bottom: 1px solid var(--border-light);
   }
   .filter-panel > .filter-section:last-child{ border-bottom: none; }
+}
+
+/* ===========================================================
+   2026-05-31 — 표 / 배지 정리
+   (2) 구·유형 열 nowrap  (3) grade-badge 폭 통일  (4) 지수 열 정렬 보강
+   기능 로직 무수정. CSS만, 표 마크업/렌더 그대로.
+   =========================================================== */
+
+/* (2) "구·유형" 열 한 줄 유지 — "동대문 · 사립" 같은 6자가 두 줄로 깨지지 않게 */
+table.list td.dist-cell{
+  white-space: nowrap;
+  word-break: normal;
+}
+table.list th:nth-child(3){
+  width: 110px;   /* 88px → 110px : "강북 · 사립" 한 줄 여유 */
+}
+
+/* (3) 검토 우선도 배지(grade-badge) 폭 통일 — 즉시 검토/우선 검토 대상/일반 검토/참고 정렬.
+   표·학교 상세·필터 카드 모두 같은 클래스를 공유 → min-width 한 곳으로 통일. */
+.grade-badge{
+  min-width: 92px;
+  text-align: center;
+  box-sizing: border-box;
+}
+/* 필터 칩(검토 우선도 4개)도 동일 폭 — "참고"가 다른 칩보다 좁아 들쭉날쭉했음 */
+.fp-chip[data-filter="bin"]{
+  min-width: 96px;
+  text-align: center;
+  box-sizing: border-box;
+  justify-content: center;
+}
+
+/* (4) "지수" 열 — 숫자 우측 정렬·세로 정렬 보강.
+   badge(min-width 통일 후) + idx-pill을 inline-flex로 우측 끝 정렬, 간격 일정. */
+table.list th:nth-child(5){
+  width: 150px;   /* 120px → 150px : 92px 배지 + 숫자 + 간격 확보, 잘림 방지 */
+  text-align: right;
+}
+td.score-cell{
+  text-align: right;
+  white-space: nowrap;
+  padding-right: 18px;
+}
+td.score-cell .grade-badge{
+  margin-right: 8px;
+  vertical-align: middle;
+}
+td.score-cell .idx-pill{
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 36px;
+  vertical-align: middle;
 }
