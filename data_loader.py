@@ -1,7 +1,8 @@
 """
 data_loader.py — 공공데이터 xlsx 로드 및 통합 DataFrame 생성
 2026-05-30: 서울 일반고 210교 / 25개 자치구 / 2023~2025 3년치
-데이터 소스: 공공데이터 수집_0530/서울일반고_연도별통합/
+데이터 출처: 학교알리미·KESS·NEIS (원천 폴더는 부모 리포 외부).
+배포용 in-repo 경로는 영문 (data/almighty/, data/kess/, data/neis/) — Mac NFD/Linux NFC 충돌 회피.
 """
 
 import pandas as pd
@@ -9,26 +10,13 @@ import numpy as np
 import re
 from pathlib import Path
 
-# 데이터 루트 — 배포(repo 내 ./data/) 우선, 로컬 dev(../공공데이터 수집_0530/) fallback.
-# Railway·Docker 등 배포 환경에선 부모 디렉토리가 없으므로 in-repo 우선.
+# 데이터 루트 — repo 내 ./data/ (영문 경로, Railway/Docker 배포 호환).
+# Mac NFD vs Linux NFC 한글 정규화 차이로 인한 파일 not-found 회피 목적.
 _HERE = Path(__file__).resolve().parent
-_DATA_CANDIDATES = [
-    _HERE / "data",                                                          # 배포 (in-repo, ./data/)
-    _HERE.parent / "공공데이터 수집_0530" / "서울일반고_연도별통합",                # 로컬 dev
-]
-# 후보 중 학교알리미/KESS 하위 디렉토리가 있는 첫 번째 경로 채택.
-def _looks_like_data_root(p: Path) -> bool:
-    return (p / "학교알리미_연도별통합").exists() and (p / "KESS_연도별통합").exists()
-DATA_DIR = next((p for p in _DATA_CANDIDATES if _looks_like_data_root(p)), _DATA_CANDIDATES[0])
-SCHOOL_DIR = DATA_DIR / "학교알리미_연도별통합"
-KESS_DIR = DATA_DIR / "KESS_연도별통합"
-NEIS_DIR = DATA_DIR / "NEIS_통합"
-
-# 학폭 별도 폴더 (서울시 전체 — 일반고 외 학교 포함 가능)
-# 현 구조에서는 학교알리미 '학교폭력심의결과' 시트가 이미 일반고 필터되어 있고
-# 선도교육조치건수 컬럼까지 포함하므로, 별도 폴더는 백업/검증용으로만 보존.
-# (Railway에 안 올림 — data_loader에서 미사용)
-BULLY_FALLBACK_DIR = _HERE.parent / "공공데이터 수집_0530" / "학교폭력심의결과_서울시전체"
+DATA_DIR = _HERE / "data"
+SCHOOL_DIR = DATA_DIR / "almighty"   # 학교알리미
+KESS_DIR = DATA_DIR / "kess"
+NEIS_DIR = DATA_DIR / "neis"
 
 # ── 학교알리미 메인 시트 컬럼 매핑 ──
 SCHOOL_COLS = {
@@ -176,7 +164,7 @@ def extract_district(raw: str) -> str:
 
 def load_school_alimi(year: int) -> pd.DataFrame:
     """학교알리미 메인+학폭 시트 로드 (210교 / 25개 자치구)"""
-    path = SCHOOL_DIR / f"{year}_서울일반고_학교알리미.xlsx"
+    path = SCHOOL_DIR / f"{year}.xlsx"
     df_raw = pd.read_excel(path, sheet_name="메인")
 
     result = pd.DataFrame()
@@ -316,7 +304,7 @@ def load_school_alimi(year: int) -> pd.DataFrame:
 
 def load_kess(year: int) -> pd.DataFrame:
     """KESS 데이터 로드 (상반기 기준)"""
-    path = KESS_DIR / f"{year}_서울일반고_KESS.xlsx"
+    path = KESS_DIR / f"{year}.xlsx"
     try:
         df_raw = pd.read_excel(path, sheet_name="통합")
     except Exception:
