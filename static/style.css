@@ -1377,3 +1377,21 @@ td.score-cell .idx-pill{
   min-width: 32px;
 }
 /* grade-badge min-width 92(통일 유지) + margin 8 + idx-pill 32 + padding 14 = 146 < 150 ✓ */
+
+/* ===========================================================
+   2026-05-31 — 표 진짜 끝장 fix
+   (N-1) cats-cell 칩을 우측 정렬 — cats-cell width:auto가 남는 공간 다 차지하는 한
+        칩이 좌측 정렬이면 우측 빈 공간이 score-cell 옆에 붙어 큰 갭으로 보임.
+        text-align:right로 칩이 cats-cell 우측 끝 = score-cell 시작점에 붙음 → 빈 공간 0.
+   (N-2) sticky thead 제거 — 어떤 상황(페이지 스크롤·캐시·sticky context 충돌)에서도
+        thead가 1위 행을 절대 가리지 않게 sticky 자체를 죽임. 페이지 스크롤 시 헤더는
+        위로 사라지지만 1위는 100% 보임 (사용자 우선순위).
+   =========================================================== */
+td.cats-cell{
+  text-align: right !important;
+}
+table.list th{
+  position: static !important;
+  z-index: auto !important;
+  background: var(--gray-50) !important;
+}
