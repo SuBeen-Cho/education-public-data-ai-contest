@@ -578,7 +578,8 @@ async def _chat_explore_impl(req: ChatRequest):
             _log_route("rule_lookup", req.query)
             return ChatResponse(**rl)
         # 6) 우선순위/Top/N위 — scores/detections로 직접 응답
-        pri = _handle_priority_query(req.query, df_full, scores, detections)
+        # history를 함께 넘겨 멀티턴 후속("그 중 제일 높은") 가로채기 방지.
+        pri = _handle_priority_query(req.query, df_full, scores, detections, history=req.history)
         if pri is not None:
             _log_route("priority", req.query)
             return ChatResponse(**pri)
@@ -611,7 +612,8 @@ async def _chat_explore_impl(req: ChatRequest):
     rule_ctx = None
     if not req.school_code:
         try:
-            rule_ctx = _extract_rule_context(req.query, df_full, scores, detections)
+            rule_ctx = _extract_rule_context(req.query, df_full, scores, detections,
+                                             history=req.history)
         except Exception as e:
             print(f"[WARN] _extract_rule_context 실패(무시): {e}")
             rule_ctx = None
@@ -1430,9 +1432,45 @@ _LOOKUP_COMPLEX_HINTS = (
     " 그리고 ", " 및 ", " 와 ", " 과 ", " 랑 ", " 이랑 ",
     # 부분 집합 — "중"은 "OO 중 OO" 패턴이 흔함
     "중 ", "중에서",
+    # 집계(count) 의도 — 단순 목록 X, LLM 위임
+    "몇 개", "몇개", "개수", "총 몇", "총몇", " count", " Count",
 )
 # 별도 정규식 — 연도 4자리(2020·2021·...) 단독 등장
 _LOOKUP_YEAR_RE = re.compile(r"\b20\d{2}\b")
+# 후속 지시어 — 직전 턴 컨텍스트를 이어받는 표현. priority 가로채기 방지용.
+_FOLLOWUP_REFERRERS = (
+    "그 중", "그중", "그 중에서", "그중에서", "그것 중", "그것들 중",
+    "거기서", "거기에서", "거기 중",
+    "이 중", "이중", "이중에서",
+)
+
+
+def _has_followup_referrer(query: str) -> bool:
+    if not query:
+        return False
+    return any(r in query for r in _FOLLOWUP_REFERRERS)
+
+
+def _history_rule_identifier(history) -> tuple:
+    """history 마지막 3개 질의에서 룰 식별자 탐색 (최신→과거).
+    매칭되면 (rule_ids, display_key, original_query) 반환, 아니면 None."""
+    if not history:
+        return None
+    try:
+        last3 = list(history)[-3:]
+    except TypeError:
+        return None
+    for entry in reversed(last3):
+        try:
+            q = (entry or {}).get("query", "") if isinstance(entry, dict) else ""
+        except AttributeError:
+            q = ""
+        if not q:
+            continue
+        rids, key = _extract_rule_id_or_name(q)
+        if rids:
+            return (rids, key, q)
+    return None
 
 
 # 카테고리 코드 다음에 올 수 있는 한국어 조사·접속 표현 (단어경계 보강)
@@ -1490,13 +1528,20 @@ def _is_complex_lookup(query: str) -> bool:
 
 
 def _extract_rule_context(query: str, df: pd.DataFrame,
-                         scores: pd.DataFrame, detections: pd.DataFrame) -> dict | None:
+                         scores: pd.DataFrame, detections: pd.DataFrame,
+                         history=None) -> dict | None:
     """쿼리에서 룰 식별자 추출 + 해당 detections의 학교 목록 반환.
     LLM 위임 경로에서 prompt에 동봉할 컨텍스트.
+    현재 쿼리에 룰이 없고 후속 지시어("그 중" 등)가 있으면 history에서 직전 룰 승계.
     매칭 안 되면 None."""
     if detections is None or detections.empty or df is None or df.empty:
         return None
     rids, display_key = _extract_rule_id_or_name(query)
+    # 후속 맥락 승계 — 현재 쿼리에 룰 없고 지시어가 있으면 history 직전 룰 사용
+    if not rids and history and _has_followup_referrer(query):
+        prev = _history_rule_identifier(history)
+        if prev:
+            rids, display_key, _ = prev
     if not rids:
         return None
     df_d = detections[detections["rule_id"].isin(rids)].copy()
@@ -1686,12 +1731,23 @@ def _handle_rule_lookup_query(query: str, df: pd.DataFrame, scores: pd.DataFrame
     }
 
 
-def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame, detections: pd.DataFrame):
-    """'우선순위가 가장 높은 학교' 류 질문 → scores 기준 응답. 매칭 안 되면 None."""
+def _handle_priority_query(query: str, df: pd.DataFrame, scores: pd.DataFrame,
+                           detections: pd.DataFrame, history=None):
+    """'우선순위가 가장 높은 학교' 류 질문 → scores 기준 응답. 매칭 안 되면 None.
+    Codex 검수 치명 3건 대응:
+      (1) 룰 식별자 + 조건어 조합이면 priority가 가로채지 말고 LLM 위임.
+      (2) 후속 지시어 + history 직전 룰 언급이면 직전 컨텍스트 유지로 LLM 위임.
+    """
     if scores is None or scores.empty or df is None or df.empty:
         return None
     q = (query or "").strip()
     if not any(k in q for k in _PRIORITY_KEYWORDS):
+        return None
+    # ★ 치명 1: 룰 식별자 + 조건어("중·제일·높은·둘 다" 등) — LLM이 룰 컨텍스트 위 처리.
+    if _count_rule_identifiers(q) > 0 and _is_complex_lookup(q):
+        return None
+    # ★ 치명 2: 후속 지시어("그 중 제일 높은") + history에 직전 룰 언급 — 맥락 승계 LLM.
+    if _has_followup_referrer(q) and history and _history_rule_identifier(history):
         return None
     # 학교명 패턴이 있는데 표본에 없으면 전체 top5 응답은 부적절 — LLM/안내로 위임.
     # 예: "부산고 우선순위" → 부산고는 서울 표본에 없음 → 전체 top5 반환하면 오답.
@@ -2041,7 +2097,8 @@ async def rulelab_rerun(req: RuleLabRerunRequest):
 # ── 한국어 명칭 매핑 ──
 
 RULE_NAMES_KO = {
-    "C1-1": "학생↔학급 역방향 변동", "C1-2": "학생↔학급 완만 역방향 변동",
+    # 룰 이름 — 룰셋_정의서_v4 표 기준 정렬 (PDF 피드백 3)
+    "C1-1": "학생↔학급 역방향 변동", "C1-2": "학생↔학급 완만 역방향",
     "C1-3": "학생↔교원 불균형", "C1-4": "학급↔교원 불균형",
     "C1-5": "학생↔보직교사 불균형", "C1-7": "교원1인당학생수 급변",
     "C1-8": "학급당학생수 급변",
@@ -2050,14 +2107,14 @@ RULE_NAMES_KO = {
     "B1-3": "학교회계 변동", "B1-4": "학교회계 강한 변동",
     "B1-5": "진학률 급변동", "B1-6": "학폭 심의 급증",
     "C2-3": "급식비 변동", "C2-3+": "급식비 강한 변동",
-    "D2-1": "유사학교 대비 상하위 10%", "D2-2": "유사학교 대비 극단값",
+    "D2-1": "유사학교 상하위 10%", "D2-2": "유사학교 IQR 극단값",
     "C5-1": "진급 시 학생 이탈",
-    "E1-1": "3년 연속 미입력", "E1-2": "단독 미입력 (동료군 다 입력)",
+    "E1-1": "3년 연속 미입력", "E1-2": "단독 미입력",
     "E1-3": "공시 의무 항목 미제출",
     "E2-2": "3년 동일값 반복",
     "F1'-1": "교원수 교차 불일치",
     # G1-1: 본교 단일 시계열의 누적 단조 추세를 점검 (m_r = 변동폭/전체평균변동폭).
-    # G1-2: 같은 방향 + 변동폭이 전체 평균의 2배+. (G1-3 미구현)
+    # G1-2: 같은 방향 + 변동폭이 전체 평균의 2배+.
     "G1-1": "다년 단조 추세",
     "G1-2": "추세 급변동",
 }
@@ -3069,4 +3126,6 @@ def _fallback_analysis(query: str, df: pd.DataFrame, columns: dict) -> ChatRespo
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 포트는 환경변수 PORT 우선 (Railway/Heroku/Render 등은 동적 주입)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

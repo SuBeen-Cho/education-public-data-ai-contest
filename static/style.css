@@ -152,16 +152,15 @@ table.list tr:last-child td{border-bottom:none}
 table.list{table-layout:fixed;width:100%;font-size:13.5px}
 table.list th{padding-top:11px;padding-bottom:11px;font-size:11px}
 table.list td{padding-top:13px;padding-bottom:13px;vertical-align:top}
-table.list{table-layout:fixed;width:100%}
 table.list th:nth-child(1){width:46px}    /* 순위 */
-table.list th:nth-child(2){width:120px}   /* 학교명 */
-table.list th:nth-child(3){width:80px}    /* 구·유형 */
-table.list td,table.list th{vertical-align:middle}
+table.list th:nth-child(2){width:170px}   /* 학교명 — 긴 학교명(단국대학교사범대학부속고등학교 등) 대비 폭 확보. PDF 피드백 2. */
+table.list th:nth-child(3){width:88px}    /* 구·유형 */
 table.list th:nth-child(4){width:auto}    /* 탐지 카테고리 */
 table.list th:nth-child(5){width:120px;text-align:right}  /* 지수 */
 td.rank-cell{font-weight:800;color:var(--cobalt);font-variant-numeric:tabular-nums}
-td.school-cell{font-weight:700;color:var(--text);overflow-wrap:anywhere;white-space:normal;line-height:1.35;font-size:13px;max-width:130px}
-td.dist-cell{color:var(--text-sub);font-size:12px;line-height:1.45;white-space:nowrap}
+/* 학교명 — 한 줄 우선, 길면 자연 줄바꿈. 위 단어 단위로 끊기지 않게 anywhere. PDF 피드백 2. */
+td.school-cell{font-weight:700;color:var(--text);overflow-wrap:anywhere;word-break:break-word;white-space:normal;line-height:1.4;font-size:12.5px;max-width:170px;padding-right:14px}
+td.dist-cell{color:var(--text-sub);font-size:12px;line-height:1.5;white-space:normal;word-break:keep-all}
 td.cats-cell{line-height:1.5;max-width:320px}
 .cat-mini{display:inline-block;font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:var(--gray-100);color:var(--text-sub);margin:1px 3px 1px 0;white-space:nowrap}
 td.stars-cell{width:80px;color:var(--cobalt);font-weight:800;letter-spacing:1px}
@@ -642,6 +641,8 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .rule-item-cnt{font-size:10px;font-weight:700;color:var(--text-muted);font-variant-numeric:tabular-nums;min-width:32px;text-align:right;white-space:nowrap}
 .rule-item-cnt.zero{color:var(--text-muted);opacity:0.6}
 .rule-item-cnt.mapping{font-size:9px;font-weight:800;color:var(--amber);background:var(--amber-bg);border:1px solid #FDE68A;border-radius:3px;padding:1px 5px;letter-spacing:0.02em;min-width:0}
+/* 광범위 탐지 룰(D2-1·E1-1) — "참고" 보조 배지 */
+.rule-item-broad{font-size:8.5px;font-weight:700;color:var(--text-muted);background:var(--gray-100);border-radius:2px;padding:0 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle}
 .rule-item.no-hits{opacity:0.55}
 .rule-item.no-hits:hover{background:transparent;color:var(--text-sub);cursor:default}
 .rule-item.needs-mapping{opacity:0.7;cursor:default}
@@ -650,8 +651,10 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 
 /* ===== DISTRICT GRID — 25개 ===== */
 .district-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
-.district-grid .fp-chip{padding:3px 4px;text-align:center;font-size:10.5px;justify-content:center;display:flex;gap:0}
-.district-grid .fp-chip .fp-chip-cnt{font-size:9px;margin-left:2px}
+/* PDF 피드백 10: 구 이름과 숫자(학교 수)의 baseline 정렬 — 높이 안 맞는 문제 해결 */
+.district-grid .fp-chip{padding:5px 6px;text-align:center;font-size:11px;justify-content:center;display:inline-flex;align-items:baseline;gap:3px;line-height:1.2;min-height:24px}
+.district-grid .fp-chip .fp-chip-cnt{font-size:9.5px;margin-left:0;font-variant-numeric:tabular-nums;font-weight:700;opacity:0.85}
+.district-grid .fp-chip.disabled{align-items:baseline}
 .district-summary{font-size:10px;color:var(--text-muted);font-weight:600;margin-top:6px;line-height:1.4}
 
 /* ===== ACTIVE CHIPS (선택된 필터 표시) ===== */
@@ -724,6 +727,12 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .md-detail-detail-list{background:var(--gray-50);border-radius:5px;padding:8px 12px;font-size:12px;line-height:1.7;color:var(--text-sub);border-left:2px solid var(--border)}
 .md-detail-detail-list div{margin-bottom:2px}
 .md-detail-detail-list strong{color:var(--text);font-weight:700}
+/* PDF 피드백 8: 핵심 검토 신호 컬럼 정렬 (연도 / 지표값 / 괄호) */
+.md-detail-detail-list .dd-row{display:grid;grid-template-columns:64px 1fr auto;gap:14px;align-items:baseline;padding:3px 0}
+.md-detail-detail-list .dd-row.dd-row-plain{grid-template-columns:64px 1fr}
+.md-detail-detail-list .dd-yr{font-variant-numeric:tabular-nums;color:var(--text-sub);font-size:12px}
+.md-detail-detail-list .dd-main{font-weight:600;color:var(--text)}
+.md-detail-detail-list .dd-paren{color:var(--text-muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .md-chart-wrap{min-height:240px;margin-top:6px;background:var(--gray-50);border-radius:6px;padding:10px}
 .md-chart-wrap > canvas{height:100%}
 .ev-no-chart{padding:36px;text-align:center;color:var(--text-muted);font-size:12px}
@@ -740,10 +749,11 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .st-dot.missing{background:var(--white);border:2px dashed var(--text-muted)}
 .st-dot.same{background:var(--amber)}
 .st-dot.detected{box-shadow:0 0 0 4px rgba(245,158,11,0.18);outline:1px solid var(--amber)}
-.st-col:not(:last-child)::after{content:'';position:absolute;top:25px;left:50%;width:100%;height:2px;background:repeating-linear-gradient(to right,var(--border) 0 5px,transparent 5px 9px);z-index:1}
+/* 선은 dot 중앙(약 7px)에 두어 dot을 관통, 아래 텍스트와 겹치지 않게. PDF 피드백 1. */
+.st-col:not(:last-child)::after{content:'';position:absolute;top:7px;left:50%;width:100%;height:2px;background:repeating-linear-gradient(to right,var(--border) 0 5px,transparent 5px 9px);z-index:0;pointer-events:none}
 .st-col.st-latest{flex-grow:1}
-.st-val{font-size:11.5px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
-.st-yr{font-size:10.5px;font-weight:600;color:var(--text-muted)}
+.st-val{font-size:11.5px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap;position:relative;z-index:2;background:var(--white);padding:0 4px}
+.st-yr{font-size:10.5px;font-weight:600;color:var(--text-muted);position:relative;z-index:2;background:var(--white);padding:0 4px}
 .ev-timeline .st-sum{margin-top:10px;font-size:12px;color:var(--amber);background:var(--amber-bg);border-left:3px solid var(--amber);border-radius:0 4px 4px 0;padding:8px 12px;line-height:1.55}
 .ev-timeline .st-sum b{font-weight:800;font-variant-numeric:tabular-nums}
 
@@ -806,6 +816,9 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 .ev-drift .dr-stat.up .dr-stat-vl{color:var(--green)}
 .ev-drift .dr-stat.strong{border-left:3px solid var(--cobalt)}
 .ev-drift .dr-stat.strong .dr-stat-vl{color:var(--cobalt)}
+/* PDF 피드백 5: 모든 카드에 좌측 컬러 라인 통일 (연평균 기울기도 동일) */
+.ev-drift .dr-stat.neutral{border-left:3px solid var(--text-muted)}
+.ev-drift .dr-stat.neutral .dr-stat-vl{color:var(--text)}
 @media(max-width:900px){
   .ev-drift .dr-grid{grid-template-columns:1fr}
 }
@@ -986,6 +999,12 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
   #self-report-section { display: block !important; }
   /* 자가진단 리포트 섹션 제목은 인쇄 시 표시 */
   #view-school > .section-title:last-of-type { display: block !important; font-size: 22px; }
+  /* PDF 피드백 9: 확인 권장 사항 행이 좁은 grid 컬럼으로 한 글자씩 세로로 떨어지는 문제 해결 */
+  .sr-rec-row{display:block!important;padding:8px 12px;line-height:1.6;page-break-inside:avoid}
+  .sr-rec-n{display:inline-flex;vertical-align:middle;margin-right:6px}
+  .sr-rec-name{display:inline;white-space:normal;margin-right:6px}
+  .sr-rec-text{display:block;margin-top:3px;word-break:keep-all;overflow-wrap:break-word}
+  .sr-top-row{page-break-inside:avoid}
 }
 
 /* legacy support — show old filter row hidden in new layout */

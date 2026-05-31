@@ -187,7 +187,7 @@ async function sendRuleLabMsg() {
     _rl('rl-footer').innerHTML = `<div style="display:flex;gap:16px;font-size:11px"><span>전체 <b style="color:var(--cobalt)">${total}</b>건</span><span>분석 <b>210</b>교</span></div>`;
     _rl('rl-stats').innerHTML = data.message || '';
   } catch(e) {
-    _rl('rl-interpret').innerHTML = `<span style="color:#991B1B">오류: ${e.message}</span>`;
+    _rl('rl-interpret').innerHTML = `<span style="color:#991B1B">응답을 불러오지 못했습니다: ${e.message}</span>`;
   }
 }
 
@@ -414,7 +414,7 @@ async function rlApplyFilters() {
     // 수정된 코드 표시
     _rl('rl-code').textContent = modifiedCode;
   } catch(e) {
-    _rl('rl-results').innerHTML = `<div style="padding:20px;text-align:center;color:#991B1B">재실행 오류: ${e.message}</div>`;
+    _rl('rl-results').innerHTML = `<div style="padding:20px;text-align:center;color:#991B1B">재실행에 실패했습니다: ${e.message}</div>`;
   }
 }
 

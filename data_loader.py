@@ -9,8 +9,17 @@ import numpy as np
 import re
 from pathlib import Path
 
-# 새 데이터 루트
-DATA_DIR = Path(__file__).parent.parent / "공공데이터 수집_0530" / "서울일반고_연도별통합"
+# 데이터 루트 — 배포(repo 내 ./data/) 우선, 로컬 dev(../공공데이터 수집_0530/) fallback.
+# Railway·Docker 등 배포 환경에선 부모 디렉토리가 없으므로 in-repo 우선.
+_HERE = Path(__file__).resolve().parent
+_DATA_CANDIDATES = [
+    _HERE / "data",                                                          # 배포 (in-repo, ./data/)
+    _HERE.parent / "공공데이터 수집_0530" / "서울일반고_연도별통합",                # 로컬 dev
+]
+# 후보 중 학교알리미/KESS 하위 디렉토리가 있는 첫 번째 경로 채택.
+def _looks_like_data_root(p: Path) -> bool:
+    return (p / "학교알리미_연도별통합").exists() and (p / "KESS_연도별통합").exists()
+DATA_DIR = next((p for p in _DATA_CANDIDATES if _looks_like_data_root(p)), _DATA_CANDIDATES[0])
 SCHOOL_DIR = DATA_DIR / "학교알리미_연도별통합"
 KESS_DIR = DATA_DIR / "KESS_연도별통합"
 NEIS_DIR = DATA_DIR / "NEIS_통합"
@@ -18,7 +27,8 @@ NEIS_DIR = DATA_DIR / "NEIS_통합"
 # 학폭 별도 폴더 (서울시 전체 — 일반고 외 학교 포함 가능)
 # 현 구조에서는 학교알리미 '학교폭력심의결과' 시트가 이미 일반고 필터되어 있고
 # 선도교육조치건수 컬럼까지 포함하므로, 별도 폴더는 백업/검증용으로만 보존.
-BULLY_FALLBACK_DIR = Path(__file__).parent.parent / "공공데이터 수집_0530" / "학교폭력심의결과_서울시전체"
+# (Railway에 안 올림 — data_loader에서 미사용)
+BULLY_FALLBACK_DIR = _HERE.parent / "공공데이터 수집_0530" / "학교폭력심의결과_서울시전체"
 
 # ── 학교알리미 메인 시트 컬럼 매핑 ──
 SCHOOL_COLS = {

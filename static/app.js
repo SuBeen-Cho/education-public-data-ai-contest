@@ -116,13 +116,10 @@ function bindNav() {
   document.querySelector('[data-view="dashboard"]').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
   const ns = document.getElementById('nav-school');
   ns.onclick = (e) => { e.preventDefault(); if (currentSchoolCode) showView('school'); };
-  document.querySelector('[data-view="advanced"]').onclick = (e) => { e.preventDefault(); showView('advanced'); initAdvanced(); };
   document.querySelector('[data-view="rulelab"]').onclick = (e) => { e.preventDefault(); showView('rulelab'); };
   document.getElementById('back-to-national').onclick = (e) => { e.preventDefault(); showView('national'); };
   document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
   document.getElementById('nav-search').addEventListener('input', () => { applyFilterAndRender(); });
-  const advBack = document.getElementById('adv-back');
-  if (advBack) advBack.onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
 }
 
 function showView(view) {
@@ -135,6 +132,30 @@ function showView(view) {
 }
 
 // ===== NATIONAL VIEW =====
+// 표본 문구 — API data_basis에서 항상 동적으로 만든다. 고정 숫자 박지 말 것.
+function _districtsLine(districts, max) {
+  if (!Array.isArray(districts) || !districts.length) return '';
+  const arr = districts.map(d => d.endsWith && d.endsWith('구') ? d : d + '구');
+  if (!max || arr.length <= max) return arr.join('·');
+  return arr.slice(0, max).join('·') + ' 외 ' + (arr.length - max) + '구';
+}
+function _sampleNoteText(db) {
+  if (!db || !db.schools) return '데이터 로드 중…';
+  const schools = db.schools;
+  const districts = Array.isArray(db.districts) ? db.districts : [];
+  const distCount = districts.length;
+  const distLine = _districtsLine(districts, 4);
+  const yr = db.year_range || '';
+  return `<b>프로토타입 표본 N=${schools}</b> · 서울 ${distCount}개 자치구 일반고`
+       + (distLine ? ` (${distLine})` : '')
+       + (yr ? ` · ${yr}년 공시` : '')
+       + ` · 확장 시 전국 11,000+`;
+}
+function _nationalSubtitle(db) {
+  if (!db || !db.schools) return '프로토타입 표본 · 시범운영';
+  return `프로토타입 표본 · 시범운영: 서울 ${db.schools}교 일반고`;
+}
+
 function renderNational(dash) {
   const grid = document.getElementById('region-grid');
   if (!grid) return;
@@ -144,13 +165,22 @@ function renderNational(dash) {
   const totalSchools = dash ? dash.total_schools : null;
   const db = dash ? (dash.data_basis || {}) : {};
 
+  // national 뷰의 헤더/푸터 문구 동기화 — index.html의 고정 N=42 문구를 API 값으로 대체
+  const subtitleEl = document.getElementById('national-subtitle');
+  if (subtitleEl) subtitleEl.textContent = _nationalSubtitle(db);
+  const footEl = document.getElementById('national-footnote');
+  if (footEl) footEl.innerHTML = _sampleNoteText(db);
+
+  const districtsLine = _districtsLine(db.districts || [], 4);
+  const districtCount = (db.districts || []).length;
+
   grid.innerHTML = REGIONS.map(r => {
     if (r.active) {
       return `
         <div class="region-card active" onclick="goToRegion('${r.code}')">
           <div class="region-card-inner">
             <div class="region-name">${r.name}</div>
-            <div class="region-districts">노원·강남·관악구 고등학교</div>
+            <div class="region-districts">${districtCount ? districtCount + '개 자치구 일반고' : ''}${districtsLine ? ' · ' + districtsLine : ''}</div>
             <div class="region-stats">
               <span class="rstat">${totalSchools != null ? totalSchools + '교' : '—'}</span>
               <span class="rstat-sep">·</span>
@@ -207,8 +237,7 @@ function _renderDashboardUI(dash, schools) {
   const db = dash.data_basis || {};
   document.getElementById('data-basis-line').textContent =
     `${db.source || '공시 데이터'} · ${db.year_range || ''}년 · 전체 ${db.schools || schools.length}교 · 검토 후보 ${dash.total_detections}건`;
-  document.getElementById('sample-note').innerHTML =
-    `<b>프로토타입 표본 N=${db.schools || 42}</b> · ${(db.districts || []).join('·')} 일반고 · ${db.year_range || ''}년 공시 · 확장 시 전국 11,000+`;
+  document.getElementById('sample-note').innerHTML = _sampleNoteText(db);
 
   renderTop3(dash.top3 || []);
   renderFilterPanel(dash);
@@ -392,14 +421,20 @@ function renderFilterPanel(dash) {
 }
 
 // 룰 accordion 항목 한 개 — 상태별 표시
+// D2-1·E1-1은 위험도 2 + 원천 시설 결측 영향으로 광범위 탐지되므로 "참고 성격" 안내 툴팁.
+const _BROAD_REFERENCE_RULES = new Set(['D2-1', 'E1-1']);
 function _ruleAccItem(r) {
   const st = r.status || 'active';
   if (st === 'active') {
     const cntCls = r.count > 0 ? 'rule-item-cnt' : 'rule-item-cnt zero';
     const click = `onclick="toggleRuleFilter('${r.rule_id}')"`;
-    return `<div class="rule-item ${r.count === 0 ? 'no-hits' : ''}" data-rule="${r.rule_id}" ${click}>
+    const broadTip = _BROAD_REFERENCE_RULES.has(r.rule_id)
+      ? ' title="원천 입력 특성 영향으로 광범위 탐지 — 참고 수준 신호"' : '';
+    const broadMark = _BROAD_REFERENCE_RULES.has(r.rule_id)
+      ? ' <span class="rule-item-broad">참고</span>' : '';
+    return `<div class="rule-item ${r.count === 0 ? 'no-hits' : ''}" data-rule="${r.rule_id}" ${click}${broadTip}>
       <span class="rule-item-id">${r.rule_id}</span>
-      <span class="rule-item-name" title="${r.rule_name_ko}">${r.rule_name_ko}</span>
+      <span class="rule-item-name" title="${r.rule_name_ko}">${r.rule_name_ko}${broadMark}</span>
       <span class="${cntCls}">${r.count}건</span>
     </div>`;
   }
@@ -634,7 +669,7 @@ let currentSelectedRule = null;
 
 function renderSchool(d) {
   currentSchoolData = d;
-  const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 42;
+  const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 0;
   const gl = indexLabel(d.score), gc = indexCls(d.score);
   document.getElementById('school-header').innerHTML = `
     <div class="sh-info">
@@ -842,9 +877,23 @@ function selectRule(ruleId) {
     numTable += '</tbody></table>';
   }
 
-  // 연도별 detail 리스트
-  const detailLines = rule.details.sort((a, b) => a.year - b.year).map(x =>
-    `<div><strong>${x.year}년</strong> · ${x.detail}</div>`).join('');
+  // 연도별 detail 리스트 — 컬럼 정렬 (PDF 피드백 8: 연도/지표/괄호 3열)
+  // detail이 "지표 값 (괄호 설명)" 형태면 3열로 분리, 아니면 그대로.
+  const detailLines = rule.details.sort((a, b) => a.year - b.year).map(x => {
+    const detail = x.detail || '';
+    const m = detail.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    if (m) {
+      return `<div class="dd-row">
+        <span class="dd-yr"><strong>${x.year}년</strong></span>
+        <span class="dd-main">${m[1].trim()}</span>
+        <span class="dd-paren">(${m[2].trim()})</span>
+      </div>`;
+    }
+    return `<div class="dd-row dd-row-plain">
+      <span class="dd-yr"><strong>${x.year}년</strong></span>
+      <span class="dd-main">${detail}</span>
+    </div>`;
+  }).join('');
 
   // 차트 캡션 — 룰 단위
   const caption = _ruleChartCaption(rule);
@@ -1120,7 +1169,7 @@ function _renderStatusTimeline(host, rule) {
 
   host.innerHTML = `
     <div class="ev-comp ev-timeline">
-      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Status Timeline</span></div>
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">상태 타임라인</span></div>
       <div class="st-row">${dots}</div>
       ${summary}
     </div>`;
@@ -1175,7 +1224,7 @@ function _renderDeltaArrow(host, rule) {
 
   host.innerHTML = `
     <div class="ev-comp ev-delta">
-      <div class="ev-comp-h">학년 진급 인원 변화 <span class="ev-comp-h-sub">Delta Arrow</span></div>
+      <div class="ev-comp-h">학년 진급 인원 변화 <span class="ev-comp-h-sub">진급 비교</span></div>
       <div class="da-band">정상 범위: <b>-7% ~ +3%</b></div>
       <div class="da-list">${items}</div>
     </div>`;
@@ -1223,7 +1272,7 @@ function _renderPeerRangeDot(host, rule) {
 
   host.innerHTML = `
     <div class="ev-comp ev-peer">
-      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Peer Range Dot</span></div>
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">유사학교 분포도</span></div>
       <div class="pr-list">${rows}</div>
       <div class="pr-legend">
         <span class="pr-lg-item"><span class="pr-lg-dot avg"></span> 동료군 평균</span>
@@ -1346,7 +1395,7 @@ function renderSelfReport(rep) {
     host.innerHTML = '<div class="sr-empty">자가진단 리포트 데이터를 불러오지 못했습니다.</div>';
     return;
   }
-  const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 42;
+  const total = (dashboardData && dashboardData.total_schools) || allSchools.length || 0;
   // v4 점수체계 라벨로 강제 — 서버 grade_label은 구 임계 잔존 가능성 있음(임계 단일 출처는 indexLabel).
   const idxCls = indexCls(rep.score), idxLb = indexLabel(rep.score);
 
@@ -1422,7 +1471,7 @@ function renderSelfReport(rep) {
       ${recRows ? `<div class="sr-section-h">확인 권장 사항</div><div class="sr-rec-list">${recRows}</div>` : ''}
       <div class="sr-foot">
         본 리포트는 본 도구가 추출한 검토 후보를 종합 요약한 것이며, 학교 평가가 아닙니다. 최종 판단·조치는 담당자가 수행합니다.<br>
-        프로토타입 표본 N=42 · 서울 강남·노원·관악구 일반고 · 확장 시 전국 11,000+
+        ${_sampleNoteText((dashboardData && dashboardData.data_basis) || {})}
       </div>
     </div>`;
 }
@@ -1520,26 +1569,30 @@ function _renderDriftTrend(host, rule) {
   }
 
   // host 안에 canvas + meta 동시 배치
+  // PDF 피드백 5: 3개 카드 좌측 컬러 라인 통일 (방향에 따라 down/up/neutral 모두 표시)
+  // PDF 피드백 6: R² → "추세 적합도", "강한 단조" → "급격한 추세 변동"
+  const fitLabel = r2 != null && r2 >= 0.9 ? '높음 (급격한 추세 변동)' : (r2 != null && r2 >= 0.5 ? '보통' : '낮음');
+  const dirCls = direction === '감소' ? 'down' : direction === '증가' ? 'up' : 'neutral';
   host.innerHTML = `
     <div class="ev-comp ev-drift">
-      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">Drift Trend</span></div>
+      <div class="ev-comp-h">${colLabel} <span class="ev-comp-h-sub">다년 추세</span></div>
       <div class="dr-grid">
         <div class="dr-chart-wrap"><canvas id="md-evidence-chart"></canvas></div>
         <div class="dr-stats">
-          <div class="dr-stat ${direction === '감소' ? 'down' : direction === '증가' ? 'up' : ''}">
+          <div class="dr-stat ${dirCls}">
             <div class="dr-stat-lb">3년 누적 변화</div>
             <div class="dr-stat-vl">${cumPct != null ? (cumPct >= 0 ? '+' : '') + cumPct.toFixed(1) + '%' : '—'}</div>
             <div class="dr-stat-sub">${direction}</div>
           </div>
-          <div class="dr-stat">
+          <div class="dr-stat ${dirCls}">
             <div class="dr-stat-lb">연 평균 기울기</div>
             <div class="dr-stat-vl">${slope != null ? (slope >= 0 ? '+' : '') + slope.toFixed(2) : '—'}</div>
             <div class="dr-stat-sub">/년</div>
           </div>
-          <div class="dr-stat ${r2 != null && r2 >= 0.9 ? 'strong' : ''}">
-            <div class="dr-stat-lb">R²</div>
+          <div class="dr-stat ${r2 != null && r2 >= 0.9 ? 'strong' : 'neutral'}">
+            <div class="dr-stat-lb">추세 적합도</div>
             <div class="dr-stat-vl">${r2 != null ? r2.toFixed(2) : '—'}</div>
-            <div class="dr-stat-sub">${r2 != null && r2 >= 0.9 ? '강한 단조' : '추세 적합도'}</div>
+            <div class="dr-stat-sub">${fitLabel}</div>
           </div>
         </div>
       </div>
@@ -1559,8 +1612,10 @@ function _renderDriftTrend(host, rule) {
     data: {
       labels,
       datasets: [
+        // 본교 라인: 코발트(파랑), 굵게 + 채움. 추세선: 강조색(빨강), 점선, 굵기 ↑.
+        // PDF 피드백 4: 본교 라인과 추세선이 거의 겹칠 때도 식별되게 색/굵기 대비 강화.
         { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.08)', borderWidth: 3, pointRadius: 5, pointHoverRadius: 7, tension: 0, fill: true, order: 1 },
-        { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 2 },
+        { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [8, 5], borderWidth: 2.5, pointRadius: 0, fill: false, order: 2 },
       ],
     },
     options: {
@@ -1757,254 +1812,6 @@ async function sendChat(text) {
 // ※ 정적 예시 화면. 모든 학교명·수치는 룰셋 정의서/시나리오 카드의 예시.
 //   실제 공시 데이터 분석 결과가 아님. 라벨로 명시.
 
-let advInitDone = false;
-function initAdvanced() {
-  if (advInitDone) return;
-  document.querySelectorAll('.adv-subtab').forEach(btn => {
-    btn.onclick = () => {
-      const sub = btn.dataset.sub;
-      document.querySelectorAll('.adv-subtab').forEach(b => b.classList.toggle('active', b === btn));
-      document.querySelectorAll('.adv-page').forEach(p => p.classList.toggle('active', p.id === 'adv-' + sub));
-    };
-  });
-  advLoadScenario();
-  advInitDone = true;
-}
-
-const ADV_RULE_EXAMPLES = {
-  1: {
-    input: "사립학교인데 학교회계 세입이 30% 넘게 줄었으면 확인해야 하지 않나?",
-    name: "사립학교 학교회계 세입 급감",
-    cols: "school_type, budget_revenue, year",
-    cond: "school_type='사립' AND 세입 전년대비 ≤ -30%",
-    code: `df_priv = df[df['school_type'] == '사립']
-df_priv = df_priv.sort_values(['school_code','year'])
-df_priv['rev_yoy'] = df_priv.groupby('school_code')['budget_revenue'].pct_change() * 100
-result = df_priv[df_priv['rev_yoy'] <= -30]`,
-    similar: "B1-3 (±30%), B1-4 (±50%)",
-    grade: "일반 검토",
-    gradeCls: "grade-normal",
-    results: [
-      { s: "영락고", v: "-49.9%", y: 2024 },
-      { s: "풍문고", v: "-44.4%", y: 2024 },
-    ],
-  },
-  2: {
-    input: "학폭이 늘었는데 교원수도 같이 줄어든 학교 있어?",
-    name: "학폭 증가 + 교원 감소 동시",
-    cols: "bullying_cases, teacher_count, year",
-    cond: "학폭 전년대비 +50% AND 교원수 -5%",
-    code: `df_s = df.sort_values(['school_code','year'])
-df_s['b_yoy'] = df_s.groupby('school_code')['bullying_cases'].pct_change()*100
-df_s['t_yoy'] = df_s.groupby('school_code')['teacher_count'].pct_change()*100
-result = df_s[(df_s['b_yoy']>=50) & (df_s['t_yoy']<=-5)]`,
-    similar: "MC-1 (학교 분위기 악화 종합 신호)",
-    grade: "우선 검토",
-    gradeCls: "grade-priority",
-    results: [
-      { s: "서라벌고", v: "학폭 +200%, 교원 -8.2%", y: 2025 },
-      { s: "노원고", v: "학폭 +100%, 교원 -7.4%", y: 2024 },
-    ],
-  },
-  3: {
-    input: "급식비 1인당 단가가 유사학교 평균의 절반 이하인 학교",
-    name: "급식비 1인당 유사학교 대비 극저",
-    cols: "meal_cost_per_student, district, year",
-    cond: "급식비 1인당 < 같은 구 평균의 50%",
-    code: `df['peer_avg'] = df.groupby(['district','year'])['meal_cost_per_student'].transform('mean')
-result = df[df['meal_cost_per_student'] < df['peer_avg'] * 0.5]`,
-    similar: "D2-2 (IQR 극단값)",
-    grade: "우선 검토",
-    gradeCls: "grade-priority",
-    results: [
-      { s: "은광여고", v: "1인당 3,200원 (평균 6,500원의 49%)", y: 2023 },
-    ],
-  },
-};
-
-function advLoadExample(n) {
-  document.getElementById('adv-rule-input').value = ADV_RULE_EXAMPLES[n].input;
-  document.getElementById('adv-gen-area').innerHTML = '';
-}
-
-function advGenRule() {
-  const v = document.getElementById('adv-rule-input').value.trim();
-  let ex = ADV_RULE_EXAMPLES[1];
-  for (const k in ADV_RULE_EXAMPLES) {
-    if (ADV_RULE_EXAMPLES[k].input === v) { ex = ADV_RULE_EXAMPLES[k]; break; }
-  }
-  const area = document.getElementById('adv-gen-area');
-  area.innerHTML = '<div class="adv-loading"><span class="ai-tag">AI 분석 중…</span><p>LLM이 자연어를 분석하여 Rule Card를 생성합니다 (예시 시연)</p></div>';
-  setTimeout(() => {
-    area.innerHTML = `
-      <div class="adv-rule-card">
-        <div class="adv-rule-head">
-          <div><span class="ai-tag">AI 생성</span> <b>Rule Card</b></div>
-          <span class="grade-badge ${ex.gradeCls}">${ex.grade}</span>
-        </div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">규칙명</div><div class="adv-rule-vl strong">${ex.name}</div></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">대상 컬럼</div><div class="adv-rule-vl">${ex.cols}</div></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">조건</div><div class="adv-rule-vl">${ex.cond}</div></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">생성된 Python 코드</div><pre class="adv-code-block">${ex.code}</pre></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">유사 기존 룰</div><div class="adv-rule-vl">${ex.similar}</div></div>
-        <div class="adv-rule-row"><div class="adv-rule-lb">추천 검토 우선도</div><div class="adv-rule-vl"><span class="grade-badge ${ex.gradeCls}">${ex.grade}</span></div></div>
-      </div>
-      <div class="adv-warn">샌드박스 실행 중… <code class="adv-code">safe_executor.py</code>: 화이트리스트 + 5초 타임아웃 + df 읽기 전용</div>
-      <div class="adv-res">
-        <div class="adv-res-head">실행 결과: ${ex.results.length}건 탐지</div>
-        ${ex.results.map(r => `<div class="adv-res-row"><b>${r.s}</b> (${r.y}): ${r.v}</div>`).join('')}
-      </div>
-      <div class="adv-flex" style="margin-top:14px">
-        <button class="adv-btn ok" onclick="advNotify('규칙이 룰셋에 추가되었습니다 (예시 시연)')">채택</button>
-        <button class="adv-btn ghost" onclick="advNotify('조건 수정 화면 (예시 시연)')">수정</button>
-        <button class="adv-btn danger sm" onclick="document.getElementById('adv-gen-area').innerHTML=''">폐기</button>
-      </div>`;
-  }, 700);
-}
-
-const ADV_SCENARIOS = {
-  1: {
-    title: "학급수 파싱 불일치",
-    sub: '"28(3)" 형태에서 28이 아닌 3을 추출',
-    root: { l: "학급수", v: "3", a: "28", d: "괄호 안 특수학급수(3)를 총 학급수로 인식한 파싱 불일치. 입력값 확인 필요" },
-    l1: [
-      { l: "학급당학생수", v: "234.7명/학급", a: "25.1명/학급", f: "704 / 3 = 234.7" },
-      { l: "학급수 변동률", v: "-89.3%", a: "+3.6%", f: "(3-28)/28 = -89.3%" },
-    ],
-    l2: [
-      { r: "C1-8", n: "학급당학생수 급변", grade: "우선 검토", gc: "grade-priority", d: "+209.6명/학급 (임계 1.5)" },
-      { r: "D2-2", n: "학급당학생수 IQR 극단", grade: "우선 검토", gc: "grade-priority", d: "234.7 (범위: 18~30)" },
-      { r: "C1-1", n: "학생↔학급 역방향", grade: "우선 검토", gc: "grade-priority", d: "학생 -1.7% / 학급 -89.3%" },
-    ],
-    imp: "검토 우선도 지수 15 — 우선 검토 대상 상위 진입",
-    fix: "학급수 원본값 '28(3)'의 파싱 정확성을 확인해 주세요. 괄호 앞 숫자(28)가 총 학급수, 괄호 안(3)이 특수학급수입니다.",
-    detail: [
-      { l: "학생수", v: "704명", s: "정상" },
-      { l: "학급수(파싱)", v: "3", s: "입력값 확인 필요 (실제 28)" },
-      { l: "학급당학생수", v: "234.7", s: "원본 값 차이 영향 (실제 25.1)" },
-      { l: "학급수 YoY", v: "-89.3%", s: "원본 값 차이 영향 (실제 +3.6%)" },
-      { l: "검토 우선도 지수", v: "15", s: "원본 값 차이 영향 (실제 ~6)" },
-    ],
-  },
-  2: {
-    title: "급식비 입력단위 혼동",
-    sub: "천원 단위를 원 단위로 입력 (1,000배 차이)",
-    root: { l: "급식비 총액", v: "3,692,063,000원", a: "3,692,063천원", d: "천원 단위를 원 단위로 입력" },
-    l1: [
-      { l: "급식비 변동률", v: "+99,900%", a: "+2.3%", f: "(3.69B - 3.69M) / 3.69M" },
-      { l: "1인당 급식비", v: "4,989,274원", a: "4,989원", f: "3.69B / 740명" },
-    ],
-    l2: [
-      { r: "C2-3+", n: "급식비 강한 변동", grade: "우선 검토", gc: "grade-priority", d: "+99,900% (학생수 +4.7%)" },
-      { r: "D2-2", n: "1인당급식비 IQR 극단", grade: "우선 검토", gc: "grade-priority", d: "4,989,274원 (범위: 3,000~8,000)" },
-    ],
-    imp: "검토 우선도 지수 13 — 상위 30% 진입",
-    fix: "급식비 입력단위가 '천원'인지 확인해 주세요 (매뉴얼 p39 Q1).",
-    detail: [
-      { l: "학생수", v: "740명", s: "정상" },
-      { l: "급식비 총액", v: "3,692,063,000원", s: "입력단위 확인 필요 (실제 3,692,063천원)" },
-      { l: "급식비 YoY", v: "+99,900%", s: "단위 차이 영향 (실제 +2.3%)" },
-      { l: "1인당 급식비", v: "4,989,274원", s: "단위 차이 영향 (실제 4,989원)" },
-      { l: "검토 우선도 지수", v: "13", s: "단위 차이 영향" },
-    ],
-  },
-  3: {
-    title: "교원수 비교 기준 차이",
-    sub: "학교알리미 교원 총계(강사 포함)와 KESS(강사 미포함) 기준 차이",
-    root: { l: "교원수 비교 기준", v: "강사 포함 82명", a: "강사 제외 72명", d: "학교알리미 총계에 강사(10명) 포함, KESS는 강사 미포함. 비교 기준 정합 확인 필요" },
-    l1: [
-      { l: "교원수 교차 차이", v: "10명 불일치", a: "0명 (보정 후)", f: "82 - 72 = 10" },
-      { l: "교원수 변동률", v: "+14.3%", a: "+2.8%", f: "강사 포함 기준으로 과대 산출" },
-    ],
-    l2: [
-      { r: "F1'-1", n: "교원수 교차 불일치", grade: "일반 검토", gc: "grade-normal", d: "학교알리미 82 vs KESS 72 (차이 10)" },
-      { r: "B1-1", n: "교원수 급변동", grade: "일반 검토", gc: "grade-normal", d: "교원수 +14.3% (임계 10%)" },
-      { r: "C1-3", n: "학생↔교원 불균형", grade: "일반 검토", gc: "grade-normal", d: "학생 +1.2% / 교원 +14.3%" },
-    ],
-    imp: "탐지 영역 3개(F1+B1+C1) — 복합성 가산으로 검토 우선도 지수 상승",
-    fix: "교원수 비교 시 강사를 제외해 주세요 (학교알리미 총계 - 강사(계) = KESS 비교용).",
-    detail: [
-      { l: "학교알리미 교원총계", v: "82명(강사 10명 포함)", s: "정의 차이" },
-      { l: "KESS 교원수", v: "72명(강사 미포함)", s: "정상" },
-      { l: "교차 차이", v: "10명", s: "기준 차이 영향 (보정 후 0)" },
-      { l: "교원수 YoY", v: "+14.3%", s: "기준 차이 영향 (실제 +2.8%)" },
-      { l: "탐지 영역", v: "3개 (F1+B1+C1)", s: "기준 차이 영향 (실제 0~1개)" },
-    ],
-  },
-};
-
-function advLoadScenario() {
-  const sel = document.getElementById('adv-scenario-select');
-  if (!sel) return;
-  const n = sel.value;
-  const s = ADV_SCENARIOS[n];
-  const area = document.getElementById('adv-scenario-area');
-  area.innerHTML = `
-    <div class="adv-prop">
-      <div class="adv-prop-head">
-        <div>
-          <b class="adv-prop-title">${s.title}</b>
-          <p class="adv-prop-sub">${s.sub}</p>
-        </div>
-        <button class="adv-btn ok sm" id="adv-resolve-btn" onclick="advResolve()">원인 정상 확인 → 일괄 해소</button>
-      </div>
-
-      <div class="adv-scenario-detail">
-        <h4>수치 상세</h4>
-        ${s.detail.map(d => `<div class="adv-metric"><span class="adv-metric-lb">${d.l}</span><span class="adv-metric-vl">${d.v} <span class="adv-metric-st">(${d.s})</span></span></div>`).join('')}
-      </div>
-
-      <div class="adv-stage-h adv-stage-root">원인 노드</div>
-      <div class="adv-node n-root" id="adv-root-node">${s.root.l}: ${s.root.v} <span class="adv-node-real">(실제: ${s.root.a})</span></div>
-      <div class="adv-node-desc">${s.root.d}</div>
-
-      <div class="adv-tree">
-        <div class="adv-stage-h adv-stage-l1">1차 전파 (파생 지표)</div>
-        ${s.l1.map(l => `
-          <div class="adv-tree-item adv-l1-item">
-            <div class="adv-node n-l1">${l.l}: ${l.v} <span class="adv-node-real">(실제: ${l.a})</span></div>
-            <div class="adv-node-desc">산출: ${l.f}</div>
-          </div>`).join('')}
-
-        <div class="adv-tree adv-tree-nested">
-          <div class="adv-stage-h adv-stage-l2">2차 전파 (거짓 탐지)</div>
-          ${s.l2.map(l => `
-            <div class="adv-tree-item adv-l2-item">
-              <div class="adv-node n-l2">${l.r} ${l.n} <span class="grade-badge ${l.gc}" style="font-size:9px;padding:1px 6px;margin-left:4px">${l.grade}</span></div>
-              <div class="adv-node-desc">${l.d} — <span class="adv-false">거짓 양성</span></div>
-            </div>`).join('')}
-
-          <div class="adv-tree adv-tree-nested">
-            <div class="adv-stage-h adv-stage-l3">3차 영향 (검토 우선도)</div>
-            <div class="adv-tree-item adv-imp-item">
-              <div class="adv-node n-imp">${s.imp}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="adv-ai-box">
-        <div class="adv-ai-h"><span class="ai-tag">AI</span> <b>원인 분석 요약</b></div>
-        <p>${s.root.l} 1개 값이 ${s.l2.length}개 룰 탐지 + 검토 우선도 상승으로 전파되었습니다.</p>
-        <p class="adv-ai-rec">권장: ${s.fix}</p>
-      </div>
-    </div>
-
-    <div class="adv-resolved" id="adv-resolved" style="display:none">
-      <h4>원인 확인 완료 — ${s.l2.length}건 일괄 해소</h4>
-      <p>"${s.root.l}" 값이 정상 확인되어 전파된 ${s.l2.length}개 탐지가 자동 해소되었습니다. 검토 우선도가 재계산됩니다.</p>
-    </div>`;
-}
-
-function advResolve() {
-  document.querySelectorAll('.adv-l1-item .adv-node, .adv-l2-item .adv-node, .adv-imp-item .adv-node, #adv-root-node').forEach(n => n.classList.add('resolved'));
-  document.getElementById('adv-resolved').style.display = 'block';
-  const b = document.getElementById('adv-resolve-btn');
-  if (b) { b.disabled = true; b.textContent = '해소 완료'; b.classList.add('disabled'); }
-}
-
-function advNotify(msg) { showNotify(msg); }
-
 // ===== RULE LAB (샌드박스 룰 생성기 — 3단 레이아웃) =====
 function setRuleLabQuery(text) {
   document.getElementById('rulelab-input').value = text;
@@ -2103,6 +1910,6 @@ async function sendRuleLabMsg() {
     document.getElementById('rl-stats').innerHTML = data.message || '';
 
   } catch (e) {
-    document.getElementById('rl-interpret').innerHTML = `<span style="color:#991B1B">네트워크 오류: ${e.message}</span>`;
+    document.getElementById('rl-interpret').innerHTML = `<span style="color:#991B1B">응답을 불러오지 못했습니다: ${e.message}</span>`;
   }
 }

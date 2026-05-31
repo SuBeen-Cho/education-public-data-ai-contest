@@ -30,7 +30,7 @@ RULE_META = {
     "C1-1":  {"category": "C1", "name": "학생↔학급 역방향 변동",       "star": 3, "status": "active",
               "cols": ["student_count", "class_count"],
               "risk": 3, "m_type": "binary",     "m_source": "class_diff",   "m_min_size": 2},
-    "C1-2":  {"category": "C1", "name": "학생↔학급 완만 역방향 변동",   "star": 2, "status": "active",
+    "C1-2":  {"category": "C1", "name": "학생↔학급 완만 역방향",       "star": 2, "status": "active",
               "cols": ["student_count", "class_count"],
               "risk": 3, "m_type": "fixed",      "m_const": 0.5},  # 학급 1개=최소 단위
     "C1-3":  {"category": "C1", "name": "학생↔교원 불균형",            "star": 2, "status": "active",
@@ -76,10 +76,10 @@ RULE_META = {
               "cols": ["bullying_cases"],
               "risk": 3, "m_type": "binary",     "m_source": "curr",         "m_min_size": 5},
     # D2 유사학교 대비 (위험도 2)
-    "D2-1":  {"category": "D2", "name": "유사학교 대비 상하위 10%",    "star": 2, "status": "active",
+    "D2-1":  {"category": "D2", "name": "유사학교 상하위 10%",        "star": 2, "status": "active",
               "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"],
               "risk": 2, "m_type": "fixed",      "m_const": 0.8},
-    "D2-2":  {"category": "D2", "name": "유사학교 대비 극단값",        "star": 3, "status": "active",
+    "D2-2":  {"category": "D2", "name": "유사학교 IQR 극단값",         "star": 3, "status": "active",
               "cols": ["students_per_class", "students_per_teacher", "meal_cost_per_student"],
               "risk": 2, "m_type": "fixed",      "m_const": 1.0},
     # C2 학생·재정 연동 (위험도 3)
@@ -97,7 +97,7 @@ RULE_META = {
     "E1-1":  {"category": "E1", "name": "3년 연속 미입력",             "star": 2, "status": "active",
               "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"],
               "risk": 2, "m_type": "fixed",      "m_const": 0.5},
-    "E1-2":  {"category": "E1", "name": "단독 미입력 (동료군 다 입력)", "star": 3, "status": "active",
+    "E1-2":  {"category": "E1", "name": "단독 미입력",                 "star": 3, "status": "active",
               "cols": ["fc_changing_room", "fc_shower", "fc_cafeteria", "fc_dorm", "fc_av_room", "fc_computer_room"],
               "risk": 2, "m_type": "fixed",      "m_const": 1.0},
     "E1-3":  {"category": "E1", "name": "공시 의무 항목 미제출",       "star": 2, "status": "needs_mapping",
