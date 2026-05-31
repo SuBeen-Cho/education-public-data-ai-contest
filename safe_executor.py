@@ -41,6 +41,8 @@ BLOCKED_PATTERNS = [
     r'\bnp\.genfromtxt\b', r'\bnp\.memmap\b',
     # inplace 변경 금지
     r'\bdrop\b.*\binplace\b',
+    # SafeNamespace 내부 참조 시도 차단 (이중 방어 — 클로저 숨김이 1차)
+    r'\._mod\b', r'\._wl\b', r'\._name\b',
 ]
 
 # pd 화이트리스트 — 분석에서 실제 쓰이는 안전한 진입점만.
@@ -105,33 +107,54 @@ NP_WHITELIST = frozenset([
 ])
 
 
-class SafeNamespace:
+def _make_safe_namespace(mod, whitelist, name: str = ""):
     """모듈을 화이트리스트로 감싸 허용 속성만 노출.
     pd.read_csv 같은 I/O 진입점을 차단. lambda·comprehension에서도 보임.
+
+    내부 참조(mod·whitelist·name)는 클로저에만 둔다.
+    예전 구현은 __slots__("_mod","_wl","_name")이라 pd._mod 로 원본 모듈에 직접 닿아
+    화이트리스트를 우회할 수 있었다. 이제 인스턴스 슬롯이 비어 있어 어떤 속성도
+    __getattr__로 폴백 → 화이트리스트 검사 통과 못 함.
     """
-    __slots__ = ("_mod", "_wl", "_name")
+    _wl_local = whitelist
+    _name_local = name or getattr(mod, "__name__", "module")
+    _mod_local = mod
 
-    def __init__(self, mod, whitelist, name: str = ""):
-        object.__setattr__(self, "_mod", mod)
-        object.__setattr__(self, "_wl", whitelist)
-        object.__setattr__(self, "_name", name or getattr(mod, "__name__", "module"))
+    class _SafeNS:
+        __slots__ = ()
 
-    def __getattr__(self, item):
-        # __slots__ 멤버나 dunder는 정상 처리되도록 SafeNamespace 자신은 가짐.
-        if item.startswith("_") and item.endswith("_") and item not in self._wl:
-            raise AttributeError(f"'{self._name}.{item}' is not allowed in sandbox")
-        if item not in self._wl:
-            raise SecurityError(f"'{self._name}.{item}' is not in the sandbox whitelist (blocked)")
-        return getattr(self._mod, item)
+        def __getattr__(self, item):
+            # 일반 인스턴스 속성이 없어 모든 접근이 여기로 옴.
+            # 화이트리스트에 있는 이름만 통과. 그 외(특히 '_'·dunder)는 일괄 차단.
+            if item in _wl_local:
+                return getattr(_mod_local, item)
+            raise SecurityError(
+                f"'{_name_local}.{item}' is not in the sandbox whitelist (blocked)"
+            )
 
-    def __setattr__(self, key, value):
-        raise SecurityError(f"sandbox '{self._name}' is read-only (set '{key}' blocked)")
+        def __setattr__(self, key, value):
+            raise SecurityError(
+                f"sandbox '{_name_local}' is read-only (set '{key}' blocked)"
+            )
 
-    def __dir__(self):
-        return sorted(self._wl)
+        def __delattr__(self, key):
+            raise SecurityError(
+                f"sandbox '{_name_local}' is read-only (del '{key}' blocked)"
+            )
 
-    def __repr__(self):
-        return f"<SafeNamespace {self._name} whitelist={len(self._wl)} items>"
+        def __dir__(self):
+            return sorted(_wl_local)
+
+        def __repr__(self):
+            return f"<SafeNamespace {_name_local} whitelist={len(_wl_local)} items>"
+
+    _SafeNS.__name__ = f"SafeNamespace_{_name_local}"
+    return _SafeNS()
+
+
+# 하위 호환 — 외부에서 SafeNamespace(...) 형태로 부르는 호출을 지원.
+def SafeNamespace(mod, whitelist, name: str = ""):
+    return _make_safe_namespace(mod, whitelist, name)
 
 
 TIMEOUT_SECONDS = 5
