@@ -1432,7 +1432,7 @@ table.list th:nth-child(2){ width: 170px !important; }
 table.list th:nth-child(3){ width: 100px !important; }
 table.list th:nth-child(4){ width: auto !important; text-align: left !important; }
 table.list th:nth-child(5){ width: 120px !important; text-align: center !important; }
-table.list th:nth-child(6){ width: 88px !important; text-align: right !important; padding-right: 18px !important; }
+table.list th:nth-child(6){ width: 88px !important; text-align: center !important; padding-right: 0 !important; }
 
 /* badge-cell — 가운데 정렬, 콘텐츠는 배지 1개 */
 td.badge-cell{
@@ -1445,12 +1445,12 @@ td.badge-cell .grade-badge{
   margin: 0 !important;
 }
 
-/* score-cell — 지수 숫자만, 우측 정렬, 폰트 키움 */
+/* score-cell — 지수 숫자만, 가운데 정렬(헤더와 통일), 폰트 키움 */
 td.score-cell{
   display: table-cell !important;            /* 직전 flex 해제 */
-  text-align: right !important;
+  text-align: center !important;
   vertical-align: middle !important;
-  padding: 11px 18px 11px 8px !important;
+  padding: 11px 8px !important;
   white-space: nowrap !important;
   flex-direction: initial !important;
   justify-content: initial !important;
