@@ -1054,39 +1054,42 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
    5) AI fab 약간 강조    6) 6박스 본문/비교표 숫자 +1px
    =========================================================== */
 
-/* (1) 챗봇 패널: 우측 풀-하이트 사이드. 헤더(58px) 아래부터. */
-/*    JS는 .chat-panel.open만 토글하므로 :has() 선택자로 본문 자동 밀림. */
+/* (1) 챗봇: 우하단 플로팅 복귀 (크게) + 반투명.
+    직전 15b991d의 사이드 풀-하이트 → 본문이 좁아져 표·6박스 텍스트가 깨졌음.
+    body:has() padding-right 룰 제거(원복). 본문은 항상 풀 폭, 챗봇은 그 위에 떠 있음. */
 .chat-panel{
-  top: 58px;
-  right: 0;
-  bottom: 0;
+  top: auto;
   left: auto;
-  width: 380px;
-  max-width: 100vw;
-  max-height: none;
-  height: auto;
-  border-radius: 0;
-  border-right: none;
-  border-top: none;
-  border-bottom: none;
+  right: 24px;
+  bottom: 24px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  height: 600px;
+  max-height: calc(100vh - 96px);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
   border-left: 1px solid var(--border);
-  box-shadow: -10px 0 24px rgba(15,42,74,0.10);
+  box-shadow: 0 16px 40px rgba(15,42,74,0.22);
+  opacity: 0.92;
+  transition: opacity .18s ease, box-shadow .18s ease;
 }
-/* 챗봇 열렸을 때 본문이 패널 옆으로 밀림 — 콘텐츠 가림 방지 */
-body:has(.chat-panel.open) main{
-  padding-right: 392px;
-  transition: padding-right .18s ease;
+/* 입력·hover·포커스 시 또렷 + 그림자 강화 */
+.chat-panel:hover,
+.chat-panel:focus-within{
+  opacity: 1;
+  box-shadow: 0 20px 48px rgba(15,42,74,0.28);
 }
-body:has(.chat-panel.open) footer.page-footer{
-  padding-right: 392px;
-}
-/* 닫혔을 때는 원복 — 명시 selector 없음, 자동 */
-main{ transition: padding-right .18s ease; }
-/* 좁은 화면(<=768px)에선 종전대로 플로팅 다이얼로그로 회귀 (모바일 가독성 우선) */
+/* 답변 영역(표·텍스트·숫자)은 패널 opacity와 무관하게 항상 또렷.
+    부모 opacity는 자식 상속이지만, 컨텐츠 가독성 위해 글씨 색상·배경은 본래 톤 유지 — 별도 글씨 fade 없음. */
+.chat-messages, .chat-chips, .chat-input-row{ opacity: 1; }
+/* 좁은 화면(≤768px)에선 거의 전체화면 가깝게 */
 @media(max-width:768px){
-  .chat-panel{top:auto;left:auto;height:auto;border-radius:var(--radius);border:1px solid var(--border);box-shadow:0 12px 32px rgba(15,42,74,0.18);max-height:calc(100vh - 16px)}
-  body:has(.chat-panel.open) main{padding-right:14px}
-  body:has(.chat-panel.open) footer.page-footer{padding-right:14px}
+  .chat-panel{
+    right: 8px; bottom: 8px; left: 8px;
+    width: auto; max-width: none;
+    height: auto; max-height: calc(100vh - 16px);
+    opacity: 1;
+  }
 }
 
 /* (2) 6박스 이모지 제거 + 색 점. 마크업·JS는 그대로. */
@@ -1136,3 +1139,80 @@ main{ transition: padding-right .18s ease; }
 .chat-card .sb-card .sb-v{ font-size:12.5px; }
 .sd-summary-card .sdc-num{ font-size:21px; }
 .sd-summary-card.lead .sdc-num{ font-size:25px; }
+
+/* ===========================================================
+   2026-05-31 (2) 서울 고등학교 필터 — 세로 사이드바 → 가로 전체폭.
+   .dash-grid를 2-col(목록+stats)로 두고 .filter-panel을 위로 전체폭 이동.
+   필터 내부 .filter-section 4개는 grid auto-fit으로 가로 나열 + 자동 줄바꿈.
+   필터링 로직(onclick)·HTML 마크업 무수정 — CSS만.
+   =========================================================== */
+.dash-grid{
+  grid-template-columns: 1fr 280px;
+  grid-template-areas:
+    "filter filter"
+    "list   stats";
+}
+.dash-grid .filter-panel{
+  grid-area: filter;
+  position: static !important;   /* 상단 sticky 해제 */
+  max-height: none;
+  overflow: visible;
+  padding: 6px 8px 8px;
+}
+.dash-grid .list-area{ grid-area: list; }
+.dash-grid .stats-panel{ grid-area: stats; }
+
+/* 필터 헤더는 전체 폭 유지, 그 아래 섹션들 grid로 가로 나열 */
+.filter-panel{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  column-gap: 8px;
+  row-gap: 4px;
+}
+.filter-panel > .filter-panel-head{
+  grid-column: 1 / -1;
+}
+.filter-panel > .filter-section{
+  border-bottom: none;
+  border-right: 1px dashed var(--border-light);
+  padding: 8px 12px;
+}
+.filter-panel > .filter-section:last-child{
+  border-right: none;
+}
+/* 가로 배치에서 세로 칸막이가 줄바꿈 후엔 부자연스러우니, 끝 칸막이만 자연 제거.
+   추가로 마지막 행 항목들에 border-right 노출되는 것은 시각적으로 OK (구분선). */
+
+/* 좁은 화면 — 1182~1024px 사이는 2-col, 그 아래는 1-col.
+   기존 1180px 블록의 stats-panel 내부 2-col(display:grid;1.3fr 1fr) override 복구. */
+@media(max-width:1180px){
+  .dash-grid{
+    grid-template-columns: 1fr 240px;
+    grid-template-areas:
+      "filter filter"
+      "list   stats";
+  }
+  .dash-grid .stats-panel{
+    grid-column: auto;
+    display: block;
+    grid-template-columns: none;
+    margin-top: 0;
+  }
+}
+@media(max-width:1024px){
+  .dash-grid{
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "filter"
+      "list"
+      "stats";
+  }
+}
+@media(max-width:768px){
+  .filter-panel{ grid-template-columns: 1fr; }
+  .filter-panel > .filter-section{
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .filter-panel > .filter-section:last-child{ border-bottom: none; }
+}
