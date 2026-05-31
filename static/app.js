@@ -1117,17 +1117,19 @@ function _renderLineChart(host, rule) {
   if (!series.length) { host.innerHTML = '<div class="ev-no-chart">표시할 시계열 데이터가 없습니다.</div>'; return; }
 
   const palette = ['#1D4ED8', '#7C3AED'];
+  const fillPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)'];
   const peerPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)'];
   const datasets = [];
   series.forEach(({ label, payload: s }, i) => {
     const color = palette[i % palette.length];
+    const fillColor = fillPalette[i % fillPalette.length];
     const bandColor = peerPalette[i % peerPalette.length];
     if (s.peer_max && s.peer_min && s.peer_max.some(v => v != null)) {
-      datasets.push({ label: `${label} 동료군 범위 최대`, data: s.peer_max, borderColor: 'transparent', backgroundColor: bandColor, pointRadius: 0, fill: false, order: 30 + i });
-      datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: bandColor, pointRadius: 0, fill: '-1', order: 31 + i });
+      datasets.push({ label: `${label} 동료군 범위 최대`, data: s.peer_max, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: false, order: 30 + i });
+      datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: '-1', order: 31 + i });
     }
-    datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: color, borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0, fill: false, order: 20 + i });
-    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: color, borderWidth: 3.5, pointRadius: 5, pointHoverRadius: 7, tension: 0.25, fill: false, order: 1 + i });
+    datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: '#94A3B8', borderDash: [6, 5], borderWidth: 2, pointRadius: 0, fill: false, order: 20 + i });
+    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: fillColor, borderWidth: 4.5, pointRadius: 8, pointHoverRadius: 11, pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 2.5, tension: 0.25, fill: true, order: 1 + i });
   });
 
   const detectedYearPlugin = {
@@ -1148,7 +1150,7 @@ function _renderLineChart(host, rule) {
   };
 
   mdChart = new Chart(cvs, {
-    type: 'line', data: { labels, datasets }, plugins: [detectedYearPlugin],
+    type: 'line', data: { labels, datasets }, plugins: [detectedYearPlugin, valLabelPlugin],
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -1456,10 +1458,14 @@ function renderSelfReport(rep) {
       <span class="sr-cat-cnt">${c.total_detections}건 / ${c.rule_count}룰${c.is_repeat ? ' · 반복' : ''}</span>
     </div>`).join('');
 
-  // 동료군 대비
+  // 동료군 대비 — 방향(+/-)별 + 절대값 4단계 그라데이션
+  // pos(+)는 초록 계열, neg(-)는 빨강 계열. 절대값 5/10/20/30% 임계로 채도 단계.
   const peerRows = (rep.peer_summary || []).map(p => {
     const sign = p.diff_pct >= 0 ? '+' : '';
-    const cls = Math.abs(p.diff_pct) >= 20 ? 'sig' : Math.abs(p.diff_pct) >= 10 ? 'mid' : '';
+    const a = Math.abs(p.diff_pct);
+    const dir = p.diff_pct >= 0 ? 'pos' : 'neg';
+    const lvl = a >= 30 ? 4 : a >= 20 ? 3 : a >= 10 ? 2 : a >= 5 ? 1 : 0;
+    const cls = lvl > 0 ? `peer-${dir}-${lvl}` : 'peer-flat';
     return `<div class="sr-peer-row ${cls}">
       <span class="sr-peer-lb">${p.label}</span>
       <span class="sr-peer-vl">본교 <b>${Number.isInteger(p.self) ? Number(p.self).toLocaleString() : p.self.toFixed(1)}</b> · 동료군 ${Number.isInteger(p.peer) ? Number(p.peer).toLocaleString() : p.peer.toFixed(1)}<span class="sr-peer-unit">${p.unit}</span></span>
@@ -1546,12 +1552,14 @@ const valLabelPlugin = { id: 'valLabel', afterDatasetsDraw(chart) {
   const ctx = chart.ctx; ctx.save();
   chart.data.datasets.forEach((ds, di) => {
     if (ds.borderDash) return;
+    if (ds.borderColor === 'transparent') return;  // 동료군 범위 band skip
+    if (ds.pointRadius === 0) return;                // 점 없는 line(추세선·평균선) skip
     const meta = chart.getDatasetMeta(di);
     meta.data.forEach((pt, i) => {
       const val = ds.data[i]; if (val == null) return;
       ctx.fillStyle = ds.borderColor || '#333';
-      ctx.font = 'bold 10px Pretendard Variable'; ctx.textAlign = 'center';
-      ctx.fillText(Number.isInteger(val) ? val : val.toFixed(1), pt.x, pt.y - 8);
+      ctx.font = '800 12px Pretendard Variable'; ctx.textAlign = 'center';
+      ctx.fillText(Number.isInteger(val) ? val.toLocaleString() : val.toFixed(1), pt.x, pt.y - 12);
     });
   }); ctx.restore();
 }};
@@ -1647,12 +1655,12 @@ function _renderDriftTrend(host, rule) {
 
   mdChart = new Chart(cvs, {
     type: 'line',
+    plugins: [valLabelPlugin],
     data: {
       labels,
       datasets: [
         // 본교 라인: 코발트(파랑), 굵게 + 채움. 추세선: 강조색(빨강), 점선, 굵기 ↑.
-        // PDF 피드백 4: 본교 라인과 추세선이 거의 겹칠 때도 식별되게 색/굵기 대비 강화.
-        { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.10)', borderWidth: 3.5, pointRadius: 6, pointHoverRadius: 9, pointBackgroundColor: '#1D4ED8', pointBorderColor: '#fff', pointBorderWidth: 2, tension: 0, fill: true, order: 1 },
+        { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.16)', borderWidth: 4.5, pointRadius: 8, pointHoverRadius: 11, pointBackgroundColor: '#1D4ED8', pointBorderColor: '#fff', pointBorderWidth: 2.5, tension: 0, fill: true, order: 1 },
         { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [8, 5], borderWidth: 2.5, pointRadius: 0, fill: false, order: 2 },
       ],
     },

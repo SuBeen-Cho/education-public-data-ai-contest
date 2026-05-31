@@ -1733,3 +1733,55 @@ table.list td:last-child{
   letter-spacing: 0.04em !important;
   margin-bottom: 8px;
 }
+
+/* ===========================================================
+   2026-06-01 v3 — 동료군 비교 색칠 8단계 그라데이션
+   양수(+): 초록 4단계 · 음수(-): 빨강 4단계 · |차이| 5/10/20/30%
+   =========================================================== */
+
+/* 직전 sig/mid 색 무력화 */
+.sr-peer-row.sig,
+.sr-peer-row.mid{
+  background: transparent;
+  border-left: none;
+}
+
+/* 기본 (5% 미만) */
+.sr-peer-row{
+  background: var(--gray-50);
+  border-left: 3px solid transparent;
+}
+.sr-peer-row.peer-flat{
+  background: var(--gray-50);
+}
+
+/* 양수 (+) — 초록 4단계 (Tailwind green palette) */
+.sr-peer-row.peer-pos-1{ background:#F0FDF4; border-left:3px solid #BBF7D0; }   /* 5~10% */
+.sr-peer-row.peer-pos-2{ background:#DCFCE7; border-left:3px solid #86EFAC; }   /* 10~20% */
+.sr-peer-row.peer-pos-3{ background:#BBF7D0; border-left:3px solid #4ADE80; }   /* 20~30% */
+.sr-peer-row.peer-pos-4{ background:#86EFAC; border-left:4px solid #16A34A; }   /* 30%+ */
+.sr-peer-row.peer-pos-1 .sr-peer-diff,
+.sr-peer-row.peer-pos-2 .sr-peer-diff{ color:#15803D; font-weight:800; }
+.sr-peer-row.peer-pos-3 .sr-peer-diff,
+.sr-peer-row.peer-pos-4 .sr-peer-diff{ color:#14532D; font-weight:900; }
+
+/* 음수 (-) — 빨강 4단계 (Tailwind red palette) */
+.sr-peer-row.peer-neg-1{ background:#FEF2F2; border-left:3px solid #FECACA; }   /* 5~10% */
+.sr-peer-row.peer-neg-2{ background:#FEE2E2; border-left:3px solid #FCA5A5; }   /* 10~20% */
+.sr-peer-row.peer-neg-3{ background:#FECACA; border-left:3px solid #F87171; }   /* 20~30% */
+.sr-peer-row.peer-neg-4{ background:#FCA5A5; border-left:4px solid #DC2626; }   /* 30%+ */
+.sr-peer-row.peer-neg-1 .sr-peer-diff,
+.sr-peer-row.peer-neg-2 .sr-peer-diff{ color:#B91C1C; font-weight:800; }
+.sr-peer-row.peer-neg-3 .sr-peer-diff,
+.sr-peer-row.peer-neg-4 .sr-peer-diff{ color:#7F1D1D; font-weight:900; }
+
+/* 차트 카드 — 가독성 강화 v2 (배경 + border + 그림자) */
+.md-chart-wrap{
+  background: linear-gradient(180deg, #fff 0%, #FAFBFC 100%);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 22px 24px 14px;
+  margin: 10px 0 14px;
+  box-shadow: 0 2px 12px rgba(15,42,74,0.04);
+  min-height: 320px;
+}
