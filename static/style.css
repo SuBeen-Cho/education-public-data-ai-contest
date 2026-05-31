@@ -1783,5 +1783,56 @@ table.list td:last-child{
   padding: 22px 24px 14px;
   margin: 10px 0 14px;
   box-shadow: 0 2px 12px rgba(15,42,74,0.04);
-  min-height: 320px;
+  min-height: 340px;
 }
+
+/* ===========================================================
+   2026-06-01 v4 — 카테고리 요약 색 기준 명확화 + 6박스 +1.5px + 룰랩 전체 +1~2px
+   =========================================================== */
+
+/* (a) 카테고리 요약 — "반복" 배지를 큼지막하게 색 의미 직관화 */
+.sr-cat-row{ font-size: 13px !important; padding: 9px 13px !important; }
+.sr-cat-row.repeat{
+  background: #FEF3C7 !important;
+  border: 1px solid #FCD34D !important;
+  border-left: 4px solid var(--amber) !important;
+}
+.sr-cat-name{ font-size: 13px !important; }
+.sr-cat-code{ font-size: 11px !important; padding: 2px 7px !important; }
+.sr-cat-cnt{ font-size: 11.5px !important; }
+/* "· 반복" 텍스트는 별도 빨간 배지 처럼 강조 (CSS만으로 가능한 처리 — sr-cat-row.repeat 안의 sr-cat-cnt에 ::after 추가 어렵고 텍스트 그대로 강조) */
+.sr-cat-row.repeat .sr-cat-cnt{
+  color: #B45309 !important;
+  font-weight: 800 !important;
+}
+
+/* (b) 6박스 본문·라벨 폰트 추가 키움 (+1.5px) */
+.sb-card{ padding: 13px 15px !important; min-height: 100px !important; }
+.sb-h{ font-size: 12.5px !important; gap: 7px !important; margin-bottom: 7px !important; }
+.sb-v{ font-size: 14.5px !important; line-height: 1.65 !important; }
+.sb-lb{ font-weight: 800 !important; }
+/* 챗봇 안 6박스는 좀 더 컴팩트 유지 */
+.chat-card .sb-card{ padding: 7px 9px !important; }
+.chat-card .sb-card .sb-h{ font-size: 11px !important; }
+.chat-card .sb-card .sb-v{ font-size: 12.5px !important; }
+
+/* (c) 룰랩(룰 생성기 테스트) 전체 +1~2px */
+#view-rulelab{ font-size: 14px !important; }
+#view-rulelab h2{ font-size: 22px !important; }
+#view-rulelab h3{ font-size: 16px !important; }
+#view-rulelab .adv-banner{ font-size: 13.5px !important; }
+#rulelab-input{ font-size: 15px !important; padding: 13px 18px !important; }
+#view-rulelab .ai-tag{ font-size: 11px !important; padding: 4px 12px !important; }
+#view-rulelab .cond-meta-item{ font-size: 12.5px !important; }
+#view-rulelab aside,
+#view-rulelab aside *:not(input):not(button):not(.ai-tag){
+  font-size: inherit;
+}
+#view-rulelab aside .ai-tag,
+#view-rulelab aside h4{ font-size: 13px !important; }
+#view-rulelab aside label{ font-size: 13.5px !important; }
+#view-rulelab aside .col-name,
+#view-rulelab aside code{ font-size: 12px !important; }
+#view-rulelab button{ font-size: 14px !important; padding: 10px 16px !important; }
+#view-rulelab table th{ font-size: 12px !important; padding: 8px 12px !important; }
+#view-rulelab table td{ font-size: 13px !important; padding: 8px 12px !important; }

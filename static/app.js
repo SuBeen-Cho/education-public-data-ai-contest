@@ -1129,7 +1129,7 @@ function _renderLineChart(host, rule) {
       datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: '-1', order: 31 + i });
     }
     datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: '#94A3B8', borderDash: [6, 5], borderWidth: 2, pointRadius: 0, fill: false, order: 20 + i });
-    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: fillColor, borderWidth: 4.5, pointRadius: 8, pointHoverRadius: 11, pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 2.5, tension: 0.25, fill: true, order: 1 + i });
+    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: fillColor, borderWidth: 5, pointRadius: 10, pointHoverRadius: 14, pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 3, tension: 0.35, fill: true, order: 1 + i });
   });
 
   const detectedYearPlugin = {
@@ -1557,9 +1557,41 @@ const valLabelPlugin = { id: 'valLabel', afterDatasetsDraw(chart) {
     const meta = chart.getDatasetMeta(di);
     meta.data.forEach((pt, i) => {
       const val = ds.data[i]; if (val == null) return;
-      ctx.fillStyle = ds.borderColor || '#333';
-      ctx.font = '800 12px Pretendard Variable'; ctx.textAlign = 'center';
-      ctx.fillText(Number.isInteger(val) ? val.toLocaleString() : val.toFixed(1), pt.x, pt.y - 12);
+      // 값 라벨을 배지 형태로 (배경 + 흰 글씨)
+      const txt = Number.isInteger(val) ? val.toLocaleString() : val.toFixed(1);
+      ctx.font = '800 12px Pretendard Variable';
+      ctx.textAlign = 'center';
+      const padX = 8, padY = 4;
+      const w = ctx.measureText(txt).width + padX * 2;
+      const h = 18;
+      const x = pt.x - w / 2;
+      const y = pt.y - 28;
+      const bgColor = ds.borderColor || '#1D4ED8';
+      // 라운드 사각형 배경
+      ctx.fillStyle = bgColor;
+      const r = 4;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      // 작은 삼각형(말풍선 꼬리)
+      ctx.beginPath();
+      ctx.moveTo(pt.x - 4, y + h);
+      ctx.lineTo(pt.x + 4, y + h);
+      ctx.lineTo(pt.x, y + h + 5);
+      ctx.closePath();
+      ctx.fill();
+      // 흰 글씨
+      ctx.fillStyle = '#fff';
+      ctx.fillText(txt, pt.x, y + h - padY - 2);
     });
   }); ctx.restore();
 }};
