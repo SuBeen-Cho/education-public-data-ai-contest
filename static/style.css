@@ -1637,3 +1637,99 @@ table.list td:last-child{
 
 /* 검토 신호 상세 섹션 제목 */
 #view-school .section-title{ font-size: 17px !important; }
+
+/* ===========================================================
+   2026-06-01 v2 — 셀 색칠 전면 제거 + 가장 최근 연도 볼드 + 폰트 추가 키움
+   =========================================================== */
+
+/* (1) 셀 색칠 제거 — 모든 .cell-detected / .md-detected / .cat-detected 무력화 */
+.data-table td.cell-detected,
+.data-table .cell-detected{
+  background: transparent !important;
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+}
+.md-detail-num-table td.md-detected,
+.md-detail-num-table .md-detected{
+  background: transparent !important;
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+.cat-table td.cat-detected,
+.cat-table .cat-detected{
+  background: transparent !important;
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+}
+
+/* 헤더의 inline cobalt-bg 강조도 제거 (md-detail-num-table·cat-table th에 inline style) */
+.md-detail-num-table thead th,
+.cat-table thead th{
+  background: var(--gray-50) !important;
+  color: var(--text-sub) !important;
+}
+
+/* (2) 가장 최근 연도 볼드 — 모든 표 마지막에서 2번째 컬럼(맨 우측은 동료군) */
+.data-table tbody td:nth-last-child(2),
+.md-detail-num-table tbody td:nth-last-child(2),
+.cat-table tbody td:nth-last-child(2){
+  font-weight: 900 !important;
+  color: var(--navy) !important;
+  font-size: 15px !important;
+}
+.data-table thead th:nth-last-child(2),
+.md-detail-num-table thead th:nth-last-child(2),
+.cat-table thead th:nth-last-child(2){
+  font-weight: 800 !important;
+  color: var(--cobalt) !important;
+}
+
+/* (3) 폰트 추가 키움 (학교 상세 전반) */
+.data-table{ font-size: 14.5px !important; }
+.data-table th{ font-size: 13px !important; padding: 10px 14px !important; }
+.data-table td{ padding: 10px 14px !important; }
+.data-table td:first-child{ font-size: 13.5px !important; }
+
+.md-detail-num-table{ font-size: 14px !important; }
+.md-detail-num-table th{ font-size: 12.5px !important; padding: 8px 12px !important; }
+.md-detail-num-table td{ padding: 8px 12px !important; }
+.md-detail-num-table td:first-child{ font-size: 13.5px !important; }
+
+.cat-table{ font-size: 13.5px !important; }
+.cat-table th{ font-size: 12.5px !important; padding: 7px 12px !important; }
+.cat-table td{ padding: 7px 12px !important; font-size: 13.5px !important; }
+.cat-table td:first-child{ font-size: 13px !important; }
+
+/* table-note (legend 대체) */
+.table-note{
+  padding: 8px 14px;
+  margin: 6px 0 10px;
+  background: var(--cobalt-bg);
+  border-left: 3px solid var(--cobalt);
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  color: var(--navy);
+  line-height: 1.55;
+}
+
+/* (4) 차트 카드 — 가독성 강화 */
+.md-chart-wrap,
+.ev-chart-wrap{
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 18px 20px 12px;
+  margin: 10px 0;
+}
+.ev-peer .pr-legend{ font-size: 12.5px !important; }
+.ev-chart-title,
+.md-chart-title{
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: var(--text-sub) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  margin-bottom: 8px;
+}

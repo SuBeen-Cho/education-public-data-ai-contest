@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EduData Watch</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260601a">
+  <link rel="stylesheet" href="/static/style.css?v=20260601b">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -182,11 +182,7 @@
     <!-- 원자료 테이블 (접기, 기본 닫힘 — 최하단 백업 자료) -->
     <details class="full-table-details">
       <summary>원자료 테이블 (검토 산출 원자료)</summary>
-      <div class="table-legend">
-        <span class="lg-item"><span class="lg-swatch lg-detected"></span>이 학교 + 이 지표 + 이 연도가 어떤 룰의 탐지 근거로 직접 사용된 값</span>
-        <span class="lg-item"><span class="lg-swatch lg-peer"></span>가장 우측 열 = 같은 구·연도 동료군 평균</span>
-        <span class="lg-item"><span class="lg-swatch lg-empty"></span>"–"는 미입력. 시설 룰(E1)에서는 미입력 자체가 탐지 근거가 됩니다.</span>
-      </div>
+      <div class="table-note">가장 최근 연도 값은 굵게 표시됩니다. 가장 우측 열은 같은 구·연도 동료군 평균(이탤릭).</div>
       <div class="data-table-wrap" id="full-data-table"></div>
     </details>
   </section>
@@ -322,7 +318,7 @@
   </div>
 </aside>
 
-<script src="/static/app.js?v=20260601a"></script>
-<script src="/static/rulelab.js?v=20260601a"></script>
+<script src="/static/app.js?v=20260601b"></script>
+<script src="/static/rulelab.js?v=20260601b"></script>
 </body>
 </html>

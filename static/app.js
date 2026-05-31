@@ -1153,10 +1153,10 @@ function _renderLineChart(host, rule) {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 10, family: 'Pretendard Variable' }, usePointStyle: true, padding: 8, filter: (item) => !item.text.includes('범위 최대') } },
-        tooltip: { callbacks: { title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}` } },
+        legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12, filter: (item) => !item.text.includes('범위 최대') } },
+        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10, callbacks: { title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}` } },
       },
-      scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } }, x: { grid: { display: false }, ticks: { font: { size: 11, weight: '600' } } } },
+      scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 13 } } }, x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' } } } },
     },
   });
 }
@@ -1652,19 +1652,19 @@ function _renderDriftTrend(host, rule) {
       datasets: [
         // 본교 라인: 코발트(파랑), 굵게 + 채움. 추세선: 강조색(빨강), 점선, 굵기 ↑.
         // PDF 피드백 4: 본교 라인과 추세선이 거의 겹칠 때도 식별되게 색/굵기 대비 강화.
-        { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.08)', borderWidth: 3, pointRadius: 5, pointHoverRadius: 7, tension: 0, fill: true, order: 1 },
+        { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.10)', borderWidth: 3.5, pointRadius: 6, pointHoverRadius: 9, pointBackgroundColor: '#1D4ED8', pointBorderColor: '#fff', pointBorderWidth: 2, tension: 0, fill: true, order: 1 },
         { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [8, 5], borderWidth: 2.5, pointRadius: 0, fill: false, order: 2 },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 10, family: 'Pretendard Variable' }, usePointStyle: true, padding: 8 } },
-        tooltip: { callbacks: { title: items => `${items[0].label}년` } },
+        legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12 } },
+        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10, callbacks: { title: items => `${items[0].label}년` } },
       },
       scales: {
-        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } },
-        x: { grid: { display: false }, ticks: { font: { size: 11, weight: '600' } } },
+        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 13 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' } } },
       },
     },
   });
