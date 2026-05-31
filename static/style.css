@@ -1178,6 +1178,46 @@ table.list th:nth-child(3){
   text-align: center;
   box-sizing: border-box;
 }
+/* 학교명 자동완성 dropdown — nav-search 아래 후보 표시 */
+.nav-search-wrap{
+  position: relative;
+}
+.nav-search-dropdown{
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 240px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 28px rgba(15,42,74,0.18);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 100;
+  display: none;
+}
+.nav-search-item{
+  padding: 9px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.nav-search-item:last-child{ border-bottom: none; }
+.nav-search-item:hover{ background: var(--cobalt-bg); }
+.nav-search-item .ns-name{ font-weight: 700; color: var(--text); }
+.nav-search-item .ns-meta{ font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.nav-search-empty{
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 /* 필터 칩(검토 우선도 4개) — 폭 통일 + 글자 좌측 정렬로 세로선 맞춤 */
 .fp-chip[data-filter="bin"]{
   min-width: 130px;

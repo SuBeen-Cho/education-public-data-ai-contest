@@ -119,7 +119,47 @@ function bindNav() {
   document.querySelector('[data-view="rulelab"]').onclick = (e) => { e.preventDefault(); showView('rulelab'); };
   document.getElementById('back-to-national').onclick = (e) => { e.preventDefault(); showView('national'); };
   document.getElementById('back-to-dashboard').onclick = (e) => { e.preventDefault(); showView('dashboard'); loadDashboard(); };
-  document.getElementById('nav-search').addEventListener('input', () => { applyFilterAndRender(); });
+  document.getElementById('nav-search').addEventListener('input', (e) => {
+    const q = (e.target.value || '').trim();
+    // 학교 상세·전국·룰랩에서 검색 시 학교 목록으로 자동 전환
+    const onList = document.getElementById('view-dashboard').classList.contains('active');
+    if (q && !onList) { showView('dashboard'); loadDashboard(); }
+    renderSearchDropdown(q);
+    applyFilterAndRender();
+  });
+  document.getElementById('nav-search').addEventListener('focus', (e) => {
+    renderSearchDropdown((e.target.value || '').trim());
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.nav-search-wrap')) {
+      const dd = document.getElementById('nav-search-dropdown');
+      if (dd) dd.style.display = 'none';
+    }
+  });
+}
+
+// 자동완성 dropdown — 학교명 부분일치 후보 표시 (클릭 시 해당 학교 상세로 이동)
+function renderSearchDropdown(q) {
+  const dd = document.getElementById('nav-search-dropdown');
+  if (!dd) return;
+  if (!q) { dd.style.display = 'none'; dd.innerHTML = ''; return; }
+  const ql = q.toLowerCase();
+  const matches = (allSchools || []).filter(s =>
+    s.school_name && s.school_name.toLowerCase().includes(ql)
+  ).slice(0, 8);
+  if (!matches.length) {
+    dd.innerHTML = '<div class="nav-search-empty">일치하는 학교 없음</div>';
+    dd.style.display = 'block';
+    return;
+  }
+  dd.innerHTML = matches.map(s => {
+    const safeName = (s.school_name || '').replace(/'/g, '&#39;');
+    return `<div class="nav-search-item" onclick="goToSchool('${s.school_code}'); document.getElementById('nav-search-dropdown').style.display='none';">
+      <span class="ns-name">${safeName}</span>
+      <span class="ns-meta">${s.district || ''}·${s.school_type || ''}</span>
+    </div>`;
+  }).join('');
+  dd.style.display = 'block';
 }
 
 function showView(view) {

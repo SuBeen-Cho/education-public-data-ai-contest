@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EduData Watch</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260531m">
+  <link rel="stylesheet" href="/static/style.css?v=20260531n">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -22,12 +22,15 @@
     </div>
     <nav class="nav-tabs">
       <a class="nav-tab active" data-view="national" href="#">전국 현황</a>
-      <a class="nav-tab" data-view="dashboard" href="#">서울 고등학교</a>
+      <a class="nav-tab" data-view="dashboard" href="#">학교 목록</a>
       <a class="nav-tab" data-view="school" href="#" id="nav-school" style="display:none">학교 상세</a>
       <a class="nav-tab" data-view="rulelab" href="#">룰 생성기 테스트</a>
     </nav>
     <div class="nav-right">
-      <input type="text" id="nav-search" class="nav-search" placeholder="학교명 검색…">
+      <div class="nav-search-wrap">
+        <input type="text" id="nav-search" class="nav-search" placeholder="학교명 검색…" autocomplete="off">
+        <div id="nav-search-dropdown" class="nav-search-dropdown"></div>
+      </div>
       <span id="nav-period" class="nav-period">—</span>
     </div>
   </div>
@@ -139,7 +142,7 @@
   <!-- ===== SCHOOL DETAIL VIEW ===== -->
   <section id="view-school" class="view">
     <div class="back-bar">
-      <a href="#" class="back-link" id="back-to-dashboard">← 서울 고등학교 목록으로</a>
+      <a href="#" class="back-link" id="back-to-dashboard">← 학교 목록으로</a>
     </div>
 
     <div class="school-header" id="school-header"></div>
@@ -314,7 +317,7 @@
   </div>
 </aside>
 
-<script src="/static/app.js?v=20260531m"></script>
-<script src="/static/rulelab.js?v=20260531m"></script>
+<script src="/static/app.js?v=20260531n"></script>
+<script src="/static/rulelab.js?v=20260531n"></script>
 </body>
 </html>
