@@ -1466,3 +1466,19 @@ td.score-cell .idx-pill{
   font-variant-numeric: tabular-nums !important;
   min-width: 0 !important;
 }
+
+/* (O-1) 헤더 ↔ 데이터 정렬 통일 — 구·유형 헤더도 우측 정렬 (데이터에 맞춤) */
+table.list th:nth-child(3){
+  text-align: right !important;
+  padding-right: 8px !important;
+}
+
+/* (O-2) 열간 구분 — 아주 연한 세로선 (border-right). 마지막 열은 제외. */
+table.list th,
+table.list td{
+  border-right: 1px solid rgba(15, 42, 74, 0.06);
+}
+table.list th:last-child,
+table.list td:last-child{
+  border-right: none;
+}
