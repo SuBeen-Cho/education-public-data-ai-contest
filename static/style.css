@@ -1411,9 +1411,7 @@ td.score-cell{
 }
 td.score-cell .grade-badge{ margin-right: 0 !important; }
 
-/* (N-4) 탐지 카테고리를 구·유형 옆에 살짝 여백으로 붙임.
-   dist-cell 콘텐츠 우측 정렬 + padding-right 8, cats-cell padding-left 8
-   → 사이 빈 공간 약 16px. */
+/* (N-4) 탐지 카테고리를 구·유형 옆에 살짝 여백으로 붙임. */
 td.dist-cell{
   text-align: right !important;
   padding-right: 8px !important;
@@ -1421,4 +1419,50 @@ td.dist-cell{
 td.cats-cell{
   text-align: left !important;
   padding-left: 8px !important;
+}
+
+/* ===========================================================
+   2026-05-31 — (O) 표 열 분리: 배지 / 지수 별도 td.
+   th 5 → 6열 (rowHtml 마크업도 함께 수정).
+   배지(badge-cell) / 지수(score-cell)가 독립 td라 정렬 깔끔.
+   지수 폰트 크게 + 가독성 강화.
+   =========================================================== */
+table.list th:nth-child(1){ width: 46px !important; }
+table.list th:nth-child(2){ width: 170px !important; }
+table.list th:nth-child(3){ width: 100px !important; }
+table.list th:nth-child(4){ width: auto !important; text-align: left !important; }
+table.list th:nth-child(5){ width: 120px !important; text-align: center !important; }
+table.list th:nth-child(6){ width: 88px !important; text-align: right !important; padding-right: 18px !important; }
+
+/* badge-cell — 가운데 정렬, 콘텐츠는 배지 1개 */
+td.badge-cell{
+  text-align: center !important;
+  vertical-align: middle !important;
+  padding: 11px 8px !important;
+  white-space: nowrap !important;
+}
+td.badge-cell .grade-badge{
+  margin: 0 !important;
+}
+
+/* score-cell — 지수 숫자만, 우측 정렬, 폰트 키움 */
+td.score-cell{
+  display: table-cell !important;            /* 직전 flex 해제 */
+  text-align: right !important;
+  vertical-align: middle !important;
+  padding: 11px 18px 11px 8px !important;
+  white-space: nowrap !important;
+  flex-direction: initial !important;
+  justify-content: initial !important;
+  align-items: initial !important;
+  gap: initial !important;
+}
+td.score-cell .idx-pill{
+  display: inline-block !important;
+  font-size: 17px !important;
+  font-weight: 900 !important;
+  color: var(--navy) !important;
+  letter-spacing: -0.02em !important;
+  font-variant-numeric: tabular-nums !important;
+  min-width: 0 !important;
 }

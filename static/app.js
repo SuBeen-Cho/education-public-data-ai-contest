@@ -617,7 +617,7 @@ function renderSchoolList(schools, total) {
   }
 
   tbl.innerHTML = `
-    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th style="text-align:right" title="검토 우선도 지수">지수</th></tr></thead>
+    <thead><tr><th>순위</th><th>학교</th><th>구·유형</th><th>탐지 카테고리</th><th>구분</th><th style="text-align:right" title="검토 우선도 지수">지수</th></tr></thead>
     <tbody>${schools.map(s => rowHtml(s)).join('')}</tbody>`;
   tbl.querySelectorAll('tbody tr[data-code]').forEach(tr => {
     tr.onclick = () => goToSchool(tr.dataset.code);
@@ -641,10 +641,8 @@ function rowHtml(s) {
     <td class="school-cell">${wrapSchoolName(s.school_name)}</td>
     <td class="dist-cell">${s.district || ''} · ${s.school_type || ''}</td>
     <td class="cats-cell">${cats}</td>
-    <td class="score-cell" style="text-align:right">
-      <span class="grade-badge ${gc}" style="margin-right:6px">${gl}</span>
-      <span class="idx-pill">${fmtIndex(s.score)}</span>
-    </td>
+    <td class="badge-cell"><span class="grade-badge ${gc}">${gl}</span></td>
+    <td class="score-cell"><span class="idx-pill">${fmtIndex(s.score)}</span></td>
   </tr>`;
 }
 
