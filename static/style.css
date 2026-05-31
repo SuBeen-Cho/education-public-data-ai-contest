@@ -1387,11 +1387,19 @@ td.score-cell .idx-pill{
         thead가 1위 행을 절대 가리지 않게 sticky 자체를 죽임. 페이지 스크롤 시 헤더는
         위로 사라지지만 1위는 100% 보임 (사용자 우선순위).
    =========================================================== */
+/* (N-1 수정) 카테고리 칩 좌측 정렬 — 사용자 요청: 왼쪽으로 붙이기.
+   직전 우측 정렬은 빈 공간 해결을 위한 것이었으나 칩이 치우쳐져 보임. */
 td.cats-cell{
-  text-align: right !important;
+  text-align: left !important;
 }
+/* (N-2) sticky thead 제거 — 1위 100% 보임 보장 */
 table.list th{
   position: static !important;
   z-index: auto !important;
   background: var(--gray-50) !important;
+}
+/* (N-3) 지수 우측 여백 살짝 — 사용자 요청 */
+td.score-cell{
+  text-align: right !important;   /* 칩이 좌측 정렬되어 멀어지므로 지수는 우측 정렬로 끝에 */
+  padding-right: 24px !important;
 }
