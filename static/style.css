@@ -64,7 +64,7 @@ header.nav{background:var(--white);border-bottom:1px solid var(--border);positio
 .nav-period{font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;letter-spacing:0.02em}
 
 /* ===== MAIN / VIEWS ===== */
-main{max-width:1280px;margin:0 auto;padding:24px 28px 32px}
+main{max-width:1600px;margin:0 auto;padding:24px 28px 32px}
 .view{display:none}
 .view.active{display:block}
 
@@ -1081,14 +1081,15 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
 }
 /* 챗봇 열렸을 때 본문(main)과 footer가 패널 옆으로 밀려 안 가림 */
 body:has(.chat-panel.open) main{
+  max-width: none;
   padding-right: 412px;
-  transition: padding-right .18s ease;
+  transition: padding-right .18s ease, max-width .18s ease;
 }
 body:has(.chat-panel.open) footer.page-footer{
   padding-right: 412px;
 }
 /* 닫혔을 때 자동 원복 */
-main{ transition: padding-right .18s ease; }
+main{ transition: padding-right .18s ease, max-width .18s ease; }
 /* 좁은 화면(≤768px) — 거의 전체화면, 본문은 안 밀림 */
 @media(max-width:768px){
   .chat-panel{
@@ -1224,10 +1225,12 @@ td.score-cell .idx-pill{
   overflow: visible;       /* 라운드는 list 자체 border-radius로 처리됨 */
 }
 
-/* (B) 표 헤더는 페이지 스크롤 기준 sticky — nav header(58px) 아래에 고정 */
+/* (B) 표 헤더는 페이지 스크롤 기준 sticky — nav header(58px) 아래에 고정.
+   nav z-index:50보다 높여야 nav 아래에서 thead가 위에 보임 → 첫 행 가림 해결. */
 table.list th{
   top: 58px;
-  z-index: 2;
+  z-index: 51;
+  background: var(--gray-50);
 }
 
 /* (C) 행 세로 가운데 정렬 — 카테고리가 여러 줄이어도 학교명·지수가 중앙선 */
