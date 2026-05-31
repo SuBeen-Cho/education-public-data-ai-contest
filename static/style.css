@@ -1335,3 +1335,45 @@ body:has(.chat-panel.open) footer.page-footer{
 .chat-panel .chat-result-table table{ font-size: 12px; }
 .chat-panel .chat-result-table th,
 .chat-panel .chat-result-table td{ padding: 6px 10px; }
+
+/* ===========================================================
+   2026-05-31 — 표 3건 진짜 fix (코드 근거 진단)
+   (M-1) 1위 가림: .list-wrap overflow-x:auto → visible
+        sticky thead가 list-wrap 내부 컨텍스트 → 위쪽 영구 빈 공간 + 첫 행 가림.
+        page-level sticky로 풀면 thead가 정상 viewport top:58에 stick.
+   (M-2) 카테고리↔배지 빈 공간: score-cell text-align:left override + grade-badge 셀 좌측에서 시작.
+   (M-3) 지수 잘림: 콘텐츠 합 ≤ 셀 폭 보장.
+   =========================================================== */
+
+/* (M-1) sticky 컨테이너를 page level로 — overflow-x 안전망은 list-panel로 이동 */
+.list-wrap{
+  overflow-x: visible;
+}
+.list-panel{
+  overflow-x: auto;
+}
+/* thead background를 list-panel(white)과 동일하게 — 가림 효과 제거 */
+table.list th{
+  background: var(--white);
+}
+
+/* (M-2 + M-3) score-cell 안 콘텐츠를 좌측 정렬해 cats-cell 옆에 붙임.
+   inline style="text-align:right"이 있어 !important로 override.
+   셀 폭은 콘텐츠 합(92+8+32+padding)에 맞춰 144→ 여유 있는 150. */
+table.list th:nth-child(5){
+  width: 150px;
+  text-align: left;
+}
+td.score-cell{
+  text-align: left !important;   /* rowHtml의 inline style="text-align:right" override */
+  padding-left: 4px;
+  padding-right: 10px;
+  white-space: nowrap;
+}
+td.score-cell .grade-badge{
+  margin-right: 8px;
+}
+td.score-cell .idx-pill{
+  min-width: 32px;
+}
+/* grade-badge min-width 92(통일 유지) + margin 8 + idx-pill 32 + padding 14 = 146 < 150 ✓ */
