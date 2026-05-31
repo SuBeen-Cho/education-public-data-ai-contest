@@ -1046,3 +1046,93 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
   .region-card.active{grid-column:span 2}
   .district-grid{grid-template-columns:repeat(4,1fr)}
 }
+
+/* ===========================================================
+   2026-05-31 UI 디테일 다듬기 — CSS only, 기능/로직 무수정.
+   1) 챗봇 사이드 패널화  2) 6박스 이모지 제거 → 색 점
+   3) 인쇄 시 룰랩 숨김   4) 차트 범례 줄바꿈
+   5) AI fab 약간 강조    6) 6박스 본문/비교표 숫자 +1px
+   =========================================================== */
+
+/* (1) 챗봇 패널: 우측 풀-하이트 사이드. 헤더(58px) 아래부터. */
+/*    JS는 .chat-panel.open만 토글하므로 :has() 선택자로 본문 자동 밀림. */
+.chat-panel{
+  top: 58px;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 380px;
+  max-width: 100vw;
+  max-height: none;
+  height: auto;
+  border-radius: 0;
+  border-right: none;
+  border-top: none;
+  border-bottom: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 24px rgba(15,42,74,0.10);
+}
+/* 챗봇 열렸을 때 본문이 패널 옆으로 밀림 — 콘텐츠 가림 방지 */
+body:has(.chat-panel.open) main{
+  padding-right: 392px;
+  transition: padding-right .18s ease;
+}
+body:has(.chat-panel.open) footer.page-footer{
+  padding-right: 392px;
+}
+/* 닫혔을 때는 원복 — 명시 selector 없음, 자동 */
+main{ transition: padding-right .18s ease; }
+/* 좁은 화면(<=768px)에선 종전대로 플로팅 다이얼로그로 회귀 (모바일 가독성 우선) */
+@media(max-width:768px){
+  .chat-panel{top:auto;left:auto;height:auto;border-radius:var(--radius);border:1px solid var(--border);box-shadow:0 12px 32px rgba(15,42,74,0.18);max-height:calc(100vh - 16px)}
+  body:has(.chat-panel.open) main{padding-right:14px}
+  body:has(.chat-panel.open) footer.page-footer{padding-right:14px}
+}
+
+/* (2) 6박스 이모지 제거 + 색 점. 마크업·JS는 그대로. */
+/*    sb-i(이모지) 자체를 가리고 sb-h::before로 박스별 색 점. */
+.sb-h .sb-i{ display:none; }
+.sb-h::before{
+  content:"";
+  display:inline-block;
+  width:8px; height:8px;
+  border-radius:50%;
+  margin-right:6px;
+  background: currentColor;
+  opacity:.85;
+  flex-shrink:0;
+}
+.sb-card.sb-finding   .sb-h::before{ background: var(--cobalt); }
+.sb-card.sb-numbers   .sb-h::before{ background: #0F2A4A; }
+.sb-card.sb-pattern   .sb-h::before{ background: #7B5EA0; }
+.sb-card.sb-peer      .sb-h::before{ background: #5B8BA0; }
+.sb-card.sb-normal    .sb-h::before{ background: var(--green); }
+.sb-card.sb-recommend .sb-h::before{ background: var(--amber); }
+
+/* (3) PDF 인쇄 시 룰 생성기 화면 제외 — 자가진단 리포트만 출력 */
+@media print{
+  #view-rulelab, #view-rulelab *{ display:none !important; }
+}
+
+/* (4) 차트 범례 가독성: 커스텀 HTML 범례(.pr-legend) 줄바꿈 허용 */
+/*    Chart.js 내부 범례는 canvas 안이라 CSS 영향 없음 — JS 옵션 무수정 정책 유지. */
+.ev-peer .pr-legend{
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* (5) AI fab 살짝 강조 — 위치/JS는 유지. 크기와 그림자만. */
+.chat-fab{
+  padding: 13px 20px 13px 16px;
+  font-size: 13.5px;
+  box-shadow: 0 8px 26px rgba(15,42,74,0.24);
+}
+.chat-fab:hover{
+  box-shadow: 0 12px 32px rgba(15,42,74,0.32);
+}
+
+/* (6) 폰트 +1px: 6박스 본문, 학교 상세 비교 카드 숫자 */
+.sb-v{ font-size:13px; }
+.chat-card .sb-card .sb-v{ font-size:12.5px; }
+.sd-summary-card .sdc-num{ font-size:21px; }
+.sd-summary-card.lead .sdc-num{ font-size:25px; }
