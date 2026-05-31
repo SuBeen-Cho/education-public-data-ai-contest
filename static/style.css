@@ -1054,45 +1054,54 @@ td.score-cell{font-weight:800;font-variant-numeric:tabular-nums;text-align:right
    5) AI fab 약간 강조    6) 6박스 본문/비교표 숫자 +1px
    =========================================================== */
 
-/* (1) 챗봇: 우하단 플로팅 카드 + CSS resize + 평소 투명/active 또렷.
-    - 기본 크기 400×560, 사용자가 모서리 드래그로 크기 조절(resize:both)
-    - 평소 opacity .45(뒤 콘텐츠 비쳐 안 가림), hover/focus-within 시 opacity 1
-    - 옵션: 답변 영역 가독성은 hover/focus-within 트리거로 보완 — 사용자가
-      마우스를 갖다대거나 입력창에 포커스를 두면 즉시 또렷해짐 */
+/* (1) 챗봇: 우측 풀-하이트 사이드 패널. 본문은 :has()로 자동 밀림.
+    - 헤더(58px) 아래부터 viewport 끝까지
+    - 기본 너비 400px, 모서리 가로 드래그로 폭 조절(resize: horizontal)
+    - 완전 불투명(opacity 룰 없음 — 직전 0.45 폐기)
+    - 닫혔을 때(.chat-panel.open 미부착) 본문 원복 */
 .chat-panel{
-  top: auto;
+  top: 58px;
   left: auto;
-  right: 24px;
-  bottom: 24px;
+  right: 0;
+  bottom: 0;
   width: 400px;
-  height: 560px;
   min-width: 320px;
-  min-height: 380px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 96px);
-  border-radius: var(--radius);
+  max-width: calc(100vw - 16px);
+  height: auto;
+  max-height: none;
+  border-radius: 0;
   border: 1px solid var(--border);
-  box-shadow: 0 16px 40px rgba(15,42,74,0.22);
-  resize: both;
+  border-right: none;
+  border-top: none;
+  border-bottom: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 24px rgba(15,42,74,0.10);
+  resize: horizontal;
   overflow: auto;
-  opacity: 0.45;
-  transition: opacity .2s ease;
 }
-/* active — 패널 hover or 내부 입력창 포커스 → 완전 또렷 */
-.chat-panel:hover,
-.chat-panel:focus-within{
-  opacity: 1;
+/* 챗봇 열렸을 때 본문(main)과 footer가 패널 옆으로 밀려 안 가림 */
+body:has(.chat-panel.open) main{
+  padding-right: 412px;
+  transition: padding-right .18s ease;
 }
-/* 좁은 화면(≤768px) — 거의 전체화면, 항상 또렷 */
+body:has(.chat-panel.open) footer.page-footer{
+  padding-right: 412px;
+}
+/* 닫혔을 때 자동 원복 */
+main{ transition: padding-right .18s ease; }
+/* 좁은 화면(≤768px) — 거의 전체화면, 본문은 안 밀림 */
 @media(max-width:768px){
   .chat-panel{
-    right: 8px; bottom: 8px; left: 8px;
-    width: auto; max-width: none;
+    top: auto; right: 8px; left: 8px; bottom: 8px;
+    width: auto; min-width: 0; max-width: none;
     height: auto; max-height: calc(100vh - 16px);
-    min-width: 0; min-height: 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 32px rgba(15,42,74,0.18);
     resize: none;
-    opacity: 1;
   }
+  body:has(.chat-panel.open) main{ padding-right: 14px; }
+  body:has(.chat-panel.open) footer.page-footer{ padding-right: 14px; }
 }
 
 /* (2) 6박스 이모지 제거 + 색 점. 마크업·JS는 그대로. */
@@ -1196,4 +1205,84 @@ td.score-cell .idx-pill{
   justify-content: flex-end;
   min-width: 36px;
   vertical-align: middle;
+}
+
+/* ===========================================================
+   2026-05-31 — 표 답답함 해제 (메인) + 챗봇 사이드 시 폭 재분배
+   = 사용자가 말한 "작은 스크롤 박스에 갇혀 4개만 보임" 해결.
+   기능 로직 무수정 — CSS만.
+   =========================================================== */
+
+/* (A) 표 내부 스크롤 박스 제거 — 풀 높이로 자연 흐름.
+       기존 .list-wrap { max-height: 480px; overflow-y: auto } 가 답답함의 원인. */
+.list-wrap{
+  max-height: none;
+  overflow-y: visible;
+  overflow-x: auto;       /* 좁아질 때 가로 스크롤만 보강 */
+}
+.list-panel{
+  overflow: visible;       /* 라운드는 list 자체 border-radius로 처리됨 */
+}
+
+/* (B) 표 헤더는 페이지 스크롤 기준 sticky — nav header(58px) 아래에 고정 */
+table.list th{
+  top: 58px;
+  z-index: 2;
+}
+
+/* (C) 행 세로 가운데 정렬 — 카테고리가 여러 줄이어도 학교명·지수가 중앙선 */
+table.list td{
+  vertical-align: middle;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+/* (D) dash-grid 폭 재분배 — list 더 시원하게, 사이드 살짝 줄임 */
+.dash-grid{
+  grid-template-columns: 220px 1fr 240px;
+  gap: 14px;
+}
+
+/* (E) 카테고리 셀이 너무 좁아 카테고리가 위아래로 늘어지는 것 방지 */
+td.cats-cell{
+  max-width: none;        /* 320 제한 해제 — 폭 따라 자연 */
+}
+
+/* (F) 챗봇 사이드 열렸을 때 dash-grid 자동 재구성 — list 폭 최대 확보.
+       stats를 list 아래 단으로 보내 list가 풀폭을 차지. */
+body:has(.chat-panel.open) .dash-grid{
+  grid-template-columns: 220px 1fr;
+  grid-template-areas:
+    "filter list"
+    "stats  stats";
+}
+body:has(.chat-panel.open) .dash-grid .filter-panel{ grid-area: filter; }
+body:has(.chat-panel.open) .dash-grid .list-area{ grid-area: list; }
+body:has(.chat-panel.open) .dash-grid .stats-panel{
+  grid-area: stats;
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+
+/* (G) 반응형 안전망 — 챗봇 사이드 + 좁은 viewport 동시일 때 */
+@media(max-width:1180px){
+  .dash-grid{ grid-template-columns: 220px 1fr 220px; }
+}
+@media(max-width:1024px){
+  body:has(.chat-panel.open) .dash-grid{
+    grid-template-columns: 1fr;
+    grid-template-areas: "filter" "list" "stats";
+  }
+}
+
+/* (H) 챗봇 안 결과표·동료군 비교표는 챗봇 폭 안에서 가로 스크롤 가능 */
+.chat-result-table{
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* (I) 학교 상세 sd-summary-grid가 좁아질 때 자동 축소 + 6박스 그대로 wrap */
+.sd-summary-grid{
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
