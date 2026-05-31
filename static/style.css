@@ -1178,12 +1178,13 @@ table.list th:nth-child(3){
   text-align: center;
   box-sizing: border-box;
 }
-/* 필터 칩(검토 우선도 4개)도 동일 폭 — "참고"가 다른 칩보다 좁아 들쭉날쭉했음 */
+/* 필터 칩(검토 우선도 4개) — 폭 통일 + 글자 좌측 정렬로 세로선 맞춤 */
 .fp-chip[data-filter="bin"]{
-  min-width: 96px;
-  text-align: center;
+  min-width: 130px;
+  text-align: left;
   box-sizing: border-box;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: 12px;
 }
 
 /* (4) "지수" 열 — 숫자 우측 정렬·세로 정렬 보강.
@@ -1432,7 +1433,7 @@ table.list th:nth-child(2){ width: 170px !important; }
 table.list th:nth-child(3){ width: 100px !important; }
 table.list th:nth-child(4){ width: auto !important; text-align: left !important; }
 table.list th:nth-child(5){ width: 120px !important; text-align: center !important; }
-table.list th:nth-child(6){ width: 88px !important; text-align: center !important; padding-right: 0 !important; }
+table.list th:nth-child(6){ width: 88px !important; text-align: center !important; padding: 11px 8px !important; }
 
 /* badge-cell — 가운데 정렬, 콘텐츠는 배지 1개 */
 td.badge-cell{
