@@ -1398,8 +1398,27 @@ table.list th{
   z-index: auto !important;
   background: var(--gray-50) !important;
 }
-/* (N-3) 지수 우측 여백 살짝 — 사용자 요청 */
+/* (N-3 수정) 지수와 배지 자리 바꿈 + 우측 여백.
+   마크업은 [grade-badge][idx-pill] 순서이므로 flex-direction:row-reverse로
+   시각상 [idx-pill 지수][grade-badge 배지] 순으로 우측 정렬. 마크업 무수정. */
 td.score-cell{
-  text-align: right !important;   /* 칩이 좌측 정렬되어 멀어지므로 지수는 우측 정렬로 끝에 */
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
   padding-right: 24px !important;
+}
+td.score-cell .grade-badge{ margin-right: 0 !important; }
+
+/* (N-4) 탐지 카테고리를 구·유형 옆에 살짝 여백으로 붙임.
+   dist-cell 콘텐츠 우측 정렬 + padding-right 8, cats-cell padding-left 8
+   → 사이 빈 공간 약 16px. */
+td.dist-cell{
+  text-align: right !important;
+  padding-right: 8px !important;
+}
+td.cats-cell{
+  text-align: left !important;
+  padding-left: 8px !important;
 }
