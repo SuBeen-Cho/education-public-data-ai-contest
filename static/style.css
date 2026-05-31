@@ -1529,3 +1529,111 @@ table.list th:last-child,
 table.list td:last-child{
   border-right: none;
 }
+
+/* ===========================================================
+   2026-06-01 — 학교 상세 폰트 +1~2px + 원자료 테이블 legend
+   =========================================================== */
+
+/* 원자료 테이블 legend — 색칠 기준 직관적으로 안내 */
+.table-legend{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  padding: 10px 14px;
+  margin: 6px 0 10px;
+  background: var(--cobalt-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--navy);
+  line-height: 1.5;
+}
+.table-legend .lg-item{
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.table-legend .lg-swatch{
+  display: inline-block;
+  width: 16px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.table-legend .lg-detected{
+  background: var(--cell-danger);
+  border-color: var(--cell-danger);
+}
+.table-legend .lg-peer{
+  background: var(--white);
+  color: var(--text-muted);
+  font-style: italic;
+}
+.table-legend .lg-peer::before{
+  content: "ㅡ";
+  display: inline-block;
+  text-align: center;
+  width: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 14px;
+  font-weight: 700;
+}
+.table-legend .lg-empty{
+  background: var(--white);
+  color: var(--text-muted);
+}
+.table-legend .lg-empty::before{
+  content: "–";
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  line-height: 12px;
+  color: var(--text-muted);
+}
+
+/* 학교 상세 — 전체 폰트 +1~2px (헤더·요약 카드·테이블·디테일) */
+.school-header h2{ font-size: 22px !important; }
+.school-header .sh-meta{ font-size: 13px !important; }
+.sd-summary-card .sdc-num{ font-size: 22px !important; }
+.sd-summary-card.lead .sdc-num{ font-size: 26px !important; }
+.sd-summary-card .sdc-label{ font-size: 11px !important; }
+.sd-summary-card .sdc-detail{ font-size: 12px !important; }
+
+/* 마스터(좌측 룰 리스트) */
+.md-master-h{ font-size: 13px !important; }
+#md-rule-list .rule-item-title{ font-size: 13.5px !important; }
+#md-rule-list .rule-item-meta{ font-size: 11.5px !important; }
+
+/* 디테일(우측) 룰 상세 */
+#md-detail h3{ font-size: 16px !important; }
+#md-detail .md-h-grade{ font-size: 12px !important; }
+
+/* 원자료 + 룰 안 수치 표 폰트 +1~1.5px */
+.data-table{ font-size: 13.5px !important; }
+.data-table th{ font-size: 12px !important; padding: 8px 12px !important; }
+.data-table td{ padding: 8px 12px !important; }
+.data-table td:first-child{ font-size: 12.5px !important; }
+
+.md-detail-num-table{ font-size: 13px !important; }
+.md-detail-num-table th{ font-size: 11.5px !important; padding: 7px 10px !important; }
+.md-detail-num-table td{ padding: 7px 10px !important; }
+.md-detail-num-table td:first-child{ font-size: 12.5px !important; }
+
+.cat-table{ font-size: 13px !important; }
+.cat-table th{ font-size: 12px !important; padding: 6px 10px !important; }
+.cat-table td{ padding: 6px 10px !important; font-size: 12.5px !important; }
+.cat-table td:first-child{ font-size: 12px !important; }
+
+/* AI 보조 요약 글씨 */
+.ai-summary{ font-size: 13.5px !important; line-height: 1.65 !important; }
+
+/* 자가진단 리포트 글씨 */
+.sr-wrap{ font-size: 13px !important; }
+.sr-top-name{ font-size: 16px !important; }
+.sr-top-score{ font-size: 28px !important; }
+
+/* 검토 신호 상세 섹션 제목 */
+#view-school .section-title{ font-size: 17px !important; }
