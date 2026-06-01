@@ -120,8 +120,9 @@ function formatKRW(amountInWon) {
   return sign + (parts.length ? parts.join(' ') + '원' : '0원');
 }
 // 컬럼 + 값 → 단위 붙은 표시 문자열. 변동률은 부호 보존 + 2자리 반올림.
-// 학교회계(세입/세출) 큰 금액은 억/만/원 가독 포맷.
+// 학교회계·급식비 큰 금액은 억/만/원 가독 포맷.
 // ★ 이중 단위 방지: 컬럼명에 (천원)·(원)·(%) 등 단위 괄호 있으면 값엔 단위 후치 X
+// ★ 급식비총액은 데이터가 천원 단위로 저장됨 → 표시 시 *1000 해서 원으로
 function fmtWithUnit(col, v) {
   if (v == null || v === '') return '-';
   if (typeof v !== 'number') {
@@ -130,18 +131,22 @@ function fmtWithUnit(col, v) {
     v = num;
   }
   const c = String(col || '');
-  // 컬럼명에 이미 단위 괄호가 있으면 값엔 단위 안 붙임
-  const colHasUnit = /\((천원|원|%|개|명|건)\)/.test(c);
-  const u = colHasUnit ? '' : colUnit(c);
-  // 학교회계 큰 금액 → 억/만/원 (단, 컬럼명에 (원) 있어도 KRW 가독 포맷이 우선)
-  if ((c.includes('학교회계 세입') || c.includes('학교회계 세출')) && Math.abs(v) >= 10000) {
-    return formatKRW(v);
-  }
-  // 변동률(%) — 컬럼명에 (%) 있어도 부호+소수 2자리 + % 한 번은 박음
+  // 변동률 — 부호+소수 2자리+% (컬럼명에 (%) 있어도 한 번만)
   if (colUnit(c) === '%' || /(변동률|%)/.test(c)) {
     const sign = v > 0 ? '+' : '';
     return sign + round2(v).toFixed(2) + '%';
   }
+  // 급식비총액: 저장 단위가 천원이라 *1000 후 원 단위 KRW
+  if (c.includes('급식비총액')) {
+    return formatKRW(v * 1000);
+  }
+  // 1인당급식비·학교회계: 그대로 KRW (단위 원)
+  if (c.includes('1인당급식비') || c.includes('학교회계 세입') || c.includes('학교회계 세출')) {
+    return formatKRW(v);
+  }
+  // 컬럼명에 이미 단위 괄호가 있으면 값엔 단위 안 붙임
+  const colHasUnit = /\((천원|원|%|개|명|건)\)/.test(c);
+  const u = colHasUnit ? '' : colUnit(c);
   const r = round2(v);
   const str = Number.isInteger(r) ? r.toLocaleString() : r.toFixed(2);
   return u ? str + u : str;
@@ -1204,31 +1209,67 @@ function _seriesForRule(rule) {
 }
 
 // ── (Fallback) 라인 차트 ──
+// M3 — 차트 모드 전역 상태 (선/막대). _selectRule 재호출 시 재렌더링.
+let _mdChartType = 'line';
+function setMdChartType(t) {
+  _mdChartType = (t === 'bar') ? 'bar' : 'line';
+  // 현재 선택 룰 재렌더
+  if (currentSelectedRule && currentSelectedRule.rule_id) {
+    selectRule(currentSelectedRule.rule_id);
+  }
+}
+
+// 급식비총액 시리즈는 데이터가 천원 단위라 *1000으로 원 단위 변환
+function _convertMealCostSeries(label, s) {
+  if (!label || !s) return s;
+  if (!label.includes('급식비총액')) return s;
+  const scale = (arr) => Array.isArray(arr) ? arr.map(v => v == null ? null : v * 1000) : arr;
+  return { self: scale(s.self), peer_mean: scale(s.peer_mean), peer_min: scale(s.peer_min), peer_max: scale(s.peer_max) };
+}
+
+// Y축 큰 숫자 → 억·만·원 compact (가독성)
+function _yAxisCompact(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return '';
+  if (Math.abs(n) >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억';
+  if (Math.abs(n) >= 10000) return (n / 10000).toLocaleString() + '만';
+  return Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1);
+}
+
 function _renderLineChart(host, rule) {
-  // host 내부에 canvas 보장
-  host.innerHTML = '<canvas id="md-evidence-chart"></canvas>';
+  // host 내부에 canvas + 모드 토글 보장 (M3)
+  const tBtn = (t, lb) => `<button class="md-chart-mode${_mdChartType===t?' active':''}" onclick="setMdChartType('${t}')">${lb}</button>`;
+  host.innerHTML = `<div class="md-chart-toolbar">${tBtn('line','선')}${tBtn('bar','막대')}</div><canvas id="md-evidence-chart"></canvas>`;
   const cvs = document.getElementById('md-evidence-chart');
   const cd = currentSchoolData.chart_data;
   const labels = cd.labels;
   const detYears = new Set(rule.years.map(Number));
 
-  const series = _seriesForRule(rule).slice(0, 2);
+  // M1: 2 → 3 시리즈 (가해학생수 등 3번째 컬럼 누락 방지)
+  const series = _seriesForRule(rule).slice(0, 3);
   if (!series.length) { host.innerHTML = '<div class="ev-no-chart">표시할 시계열 데이터가 없습니다.</div>'; return; }
 
-  const palette = ['#1D4ED8', '#7C3AED'];
-  const fillPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)'];
-  const peerPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)'];
+  const palette = ['#1D4ED8', '#7C3AED', '#DC2626'];
+  const fillPalette = ['rgba(29,78,216,0.18)', 'rgba(124,58,237,0.18)', 'rgba(220,38,38,0.18)'];
   const datasets = [];
-  series.forEach(({ label, payload: s }, i) => {
+  // 막대 모드면 peer_range/peer_mean line은 숨김(가독성), 본교는 bar
+  const isBar = _mdChartType === 'bar';
+  series.forEach(({ label, payload }, i) => {
+    const s = _convertMealCostSeries(label, payload);
     const color = palette[i % palette.length];
     const fillColor = fillPalette[i % fillPalette.length];
-    const bandColor = peerPalette[i % peerPalette.length];
-    if (s.peer_max && s.peer_min && s.peer_max.some(v => v != null)) {
-      datasets.push({ label: `${label} 동료군 범위 최대`, data: s.peer_max, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: false, order: 30 + i });
-      datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: '-1', order: 31 + i });
+    if (!isBar) {
+      if (s.peer_max && s.peer_min && s.peer_max.some(v => v != null)) {
+        datasets.push({ label: `${label} 동료군 범위 최대`, data: s.peer_max, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: false, order: 30 + i });
+        datasets.push({ label: `${label} 동료군 범위`, data: s.peer_min, borderColor: 'transparent', backgroundColor: 'rgba(148,163,184,0.10)', pointRadius: 0, fill: '-1', order: 31 + i });
+      }
+      datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: '#94A3B8', borderDash: [6, 5], borderWidth: 2, pointRadius: 0, fill: false, order: 20 + i });
+      datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: fillColor, borderWidth: 5, pointRadius: 10, pointHoverRadius: 14, pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 3, tension: 0.35, fill: true, order: 1 + i });
+    } else {
+      // 막대: 본교만 (동료군 비교는 동료군 평균 막대로 옆에 표시)
+      datasets.push({ type: 'bar', label: `${label} (본교)`, data: s.self, backgroundColor: color, borderRadius: 4, order: 1 + i, barPercentage: 0.55, categoryPercentage: 0.7 });
+      datasets.push({ type: 'bar', label: `${label} 동료군 평균`, data: s.peer_mean, backgroundColor: 'rgba(148,163,184,0.55)', borderRadius: 4, order: 5 + i, barPercentage: 0.55, categoryPercentage: 0.7 });
     }
-    datasets.push({ label: `${label} 동료군 평균`, data: s.peer_mean, borderColor: '#94A3B8', borderDash: [6, 5], borderWidth: 2, pointRadius: 0, fill: false, order: 20 + i });
-    datasets.push({ label: `${label} (본교)`, data: s.self, borderColor: color, backgroundColor: fillColor, borderWidth: 5, pointRadius: 10, pointHoverRadius: 14, pointBackgroundColor: color, pointBorderColor: '#fff', pointBorderWidth: 3, tension: 0.35, fill: true, order: 1 + i });
   });
 
   const detectedYearPlugin = {
@@ -1248,8 +1289,11 @@ function _renderLineChart(host, rule) {
     },
   };
 
+  // 어떤 시리즈가 KRW(원) 라벨인지 판단 — Y축 compact KRW 적용 결정
+  const anyKRW = series.some(s => s.label && (s.label.includes('급식비총액') || s.label.includes('학교회계') || s.label.includes('1인당급식비')));
+
   mdChart = new Chart(cvs, {
-    type: 'line', data: { labels, datasets }, plugins: [detectedYearPlugin, valLabelPlugin],
+    type: isBar ? 'bar' : 'line', data: { labels, datasets }, plugins: isBar ? [detectedYearPlugin] : [detectedYearPlugin, valLabelPlugin],
     options: {
       responsive: true, maintainAspectRatio: false,
       // L1·L2·L3 — valLabel 배지·Y축 숫자·오른쪽 데이터 잘림 방지
@@ -1260,20 +1304,24 @@ function _renderLineChart(host, rule) {
         tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10,
           callbacks: {
             title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}`,
-            // L5/L11 — 툴팁에도 단위 부착 (dataset.label에서 컬럼명 추출)
+            // 툴팁 단위 부착 (dataset.label에서 컬럼명 추출 — 본교 / 동료군 접미사 제거)
             label: (ctx) => {
               const ds = ctx.dataset || {};
               const baseLabel = ds.label || '';
-              // "급식비총액(천원) (본교)" / "급식비총액(천원) 동료군 평균" → col 추출
               const col = baseLabel.replace(/\s*\((본교|peer|동료군.*)\)?\s*$/, '').replace(/\s+동료군.*$/, '').trim();
               const v = ctx.parsed.y;
+              // 급식비총액은 차트 데이터가 이미 *1000된 상태 → fmtWithUnit가 또 *1000 하면 이중 변환
+              // 그러므로 차트 툴팁에선 KRW 직접 포맷
+              if (col.includes('급식비총액') || col.includes('1인당급식비') || col.includes('학교회계')) {
+                return `${baseLabel}: ${(v == null) ? '-' : formatKRW(v)}`;
+              }
               return `${baseLabel}: ${fmtWithUnit(col, v)}`;
             }
           } },
       },
       scales: {
-        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
-          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+        y: { beginAtZero: isBar, grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return anyKRW ? _yAxisCompact(v) : (Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1)); } } },
         x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
       },
     },
@@ -1743,8 +1791,12 @@ function _renderDriftTrend(host, rule) {
   const labels = cd.labels;
   const series = _seriesForRule(rule)[0];
   if (!series) { _renderLineChart(host, rule); return; }
-  const vals = series.payload.self || [];
   const colLabel = series.label;
+  // 급식비총액은 천원→원 변환해서 표시
+  const rawVals = series.payload.self || [];
+  const vals = (colLabel && colLabel.includes('급식비총액'))
+    ? rawVals.map(v => v == null ? null : v * 1000)
+    : rawVals;
 
   // 룰 detection의 메타에서 추출 시도 — details에 R²·기울기 문자열이 들어 있지만 안정성 위해 직접 재계산
   let v0 = null, v1 = null, v2 = null;
@@ -1829,13 +1881,16 @@ function _renderDriftTrend(host, rule) {
               const baseLabel = ds.label || '';
               const col = baseLabel.replace(/\s*\((본교|peer|동료군.*)\)?\s*$/, '').trim();
               const v = ctx.parsed.y;
+              if (col.includes('급식비총액') || col.includes('1인당급식비') || col.includes('학교회계')) {
+                return `${baseLabel}: ${(v == null) ? '-' : formatKRW(v)}`;
+              }
               return `${baseLabel}: ${fmtWithUnit(col, v)}`;
             }
           } },
       },
       scales: {
         y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
-          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return (colLabel && colLabel.includes('급식비총액')) ? _yAxisCompact(v) : (Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1)); } } },
         x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
       },
     },

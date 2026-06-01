@@ -1872,6 +1872,21 @@ td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning) !important; }
 .dist-bar.minor   { background:var(--sev-minor) !important; }
 .dist-bar.warning { background:var(--sev-warning) !important; }
 
+/* ===== M3 — Evidence Chart 선/막대 모드 토글 (2026-06-01) =====
+   학교 상세 룰 차트 위에 작은 모드 버튼 2개. JS 무수정 셀렉터 보존. */
+.md-chart-toolbar{
+  display: flex; gap: 6px; justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.md-chart-mode{
+  padding: 4px 12px; border: 1px solid var(--border); background: var(--white);
+  color: var(--text-sub); font: 11px/1 var(--font); font-weight: 700;
+  border-radius: 6px; cursor: pointer; letter-spacing: 0.02em;
+  transition: all .12s;
+}
+.md-chart-mode:hover{ border-color: var(--cobalt); color: var(--cobalt); }
+.md-chart-mode.active{ background: var(--cobalt); color: #fff; border-color: var(--cobalt); }
+
 /* ===== Phase 3 — 전국현황 서울 히어로 + 16개 시·도 강등 (배치 2, 2026-06-01) =====
    region-card는 JS 주입 마크업 무수정. CSS만 active(서울) 더 크게, disabled(나머지) 작은 칩으로. */
 

@@ -170,7 +170,7 @@ COL_KO = {
     "bullying_cases": "학폭심의건수", "bullying_victims": "피해학생수",
     "bullying_protection": "보호조치건수", "bullying_perpetrators": "가해학생수",
     "bullying_discipline": "학폭조치건수",
-    "graduation_rate": "진학률(%)", "meal_cost_total": "급식비총액(천원)",
+    "graduation_rate": "진학률(%)", "meal_cost_total": "급식비총액(원)",
     "meal_cost_per_student": "1인당급식비(원)",
     "teacher_total_position": "교원총계(직위별)", "instructor_count": "강사수",
     "teacher_count_no_instructor": "교원수(강사제외)",
@@ -217,7 +217,7 @@ _COL_UNIT_HINT = {
     "bullying_protection": "건", "bullying_perpetrators": "명",
     "bullying_discipline": "건",
     "graduation_rate": "%",
-    "meal_cost_total": "천원", "meal_cost_per_student": "원",
+    "meal_cost_total": "원", "meal_cost_per_student": "원",
     "budget_revenue": "원", "budget_expense": "원",
     "teacher_total_position": "명", "instructor_count": "명",
     "teacher_count_no_instructor": "명", "head_teacher_count": "명",
@@ -245,14 +245,21 @@ def _fmt_krw(amount: float) -> str:
     return sign + (" ".join(parts) + "원" if parts else "0원")
 
 def _fmt_val(col_key: str, v) -> str:
-    """6박스/peer 텍스트용 통합 포맷터. 컬럼키 기반 단위 부착·KRW 변환."""
+    """6박스/peer 텍스트용 통합 포맷터. 컬럼키 기반 단위 부착·KRW 변환.
+    급식비총액은 저장 단위가 천원 → 표시는 원으로 변환 후 KRW 가독 포맷."""
     try:
         x = float(v)
     except Exception:
         return "—"
-    # 회계 큰 금액은 KRW
+    # 급식비총액: 천원 단위 저장 → 원으로 변환해서 KRW 표시
+    if col_key == "meal_cost_total":
+        x = x * 1000
+        return _fmt_krw(x) if abs(x) >= 10000 else f"{int(round(x)):,}원"
+    # 회계·1인당급식비 큰 금액은 KRW
     if col_key in ("budget_revenue", "budget_expense") and abs(x) >= 10000:
         return _fmt_krw(x)
+    if col_key == "meal_cost_per_student":
+        return _fmt_krw(x) if abs(x) >= 10000 else f"{int(round(x)):,}원"
     unit = _COL_UNIT_HINT.get(col_key, "")
     if unit == "%":
         sign = "+" if x >= 0 else ""
@@ -1015,6 +1022,10 @@ _EXAMPLE_SUGGESTIONS = [
     "우선 검토 신호만 요약해줘",
     "노원구에서 학생수가 줄어든 학교",
     "학교폭력 조치 확인 신호가 있는 학교는?",
+    "교원수가 3년 연속 감소한 학교",
+    "급식비가 30% 이상 오른 학교",
+    "C5-1 룰 설명해줘",
+    "검토 우선도 카테고리 종류 알려줘",
 ]
 
 
@@ -2302,7 +2313,7 @@ TABLE_METRICS = [
     ("보호조치건수", "bullying_protection"),
     ("가해학생수", "bullying_perpetrators"),
     ("진학률(%)", "graduation_rate"),
-    ("급식비총액(천원)", "meal_cost_total"),
+    ("급식비총액(원)", "meal_cost_total"),
     ("1인당급식비(원)", "meal_cost_per_student"),
     ("학교회계 세입", "budget_revenue"),
     ("학교회계 세출", "budget_expense"),
@@ -2311,8 +2322,8 @@ TABLE_METRICS = [
 # 라벨 동의어 — 다양한 곳에서 들어오는 라벨을 정식 라벨로 정규화
 LABEL_ALIAS = {
     "진학률": "진학률(%)",
-    "급식비총액": "급식비총액(천원)",
-    "급식비 총액": "급식비총액(천원)",
+    "급식비총액": "급식비총액(원)",
+    "급식비 총액": "급식비총액(원)",
     "1인당급식비": "1인당급식비(원)",
     "1인당 급식비": "1인당급식비(원)",
     "학폭건수": "학폭 심의건수",
@@ -2439,7 +2450,7 @@ def _build_chart_data(school_df, full_df, district) -> dict:
         ("bullying_protection", "보호조치건수"),
         ("bullying_perpetrators", "가해학생수"),
         ("graduation_rate", "진학률(%)"),
-        ("meal_cost_total", "급식비총액(천원)"),
+        ("meal_cost_total", "급식비총액(원)"),
         ("meal_cost_per_student", "1인당급식비(원)"),
         ("budget_revenue", "학교회계 세입"),
         ("budget_expense", "학교회계 세출"),
@@ -2919,8 +2930,8 @@ RULE_COLUMNS = {
     "B1-4":  [("학교회계 세입","budget_revenue"), ("학교회계 세출","budget_expense")],
     "B1-5":  [("진학률(%)","graduation_rate")],
     "B1-6":  [("학폭 심의건수","bullying_cases")],
-    "C2-3":  [("급식비총액(천원)","meal_cost_total"), ("학생수","student_count")],
-    "C2-3+": [("급식비총액(천원)","meal_cost_total"), ("학생수","student_count")],
+    "C2-3":  [("급식비총액(원)","meal_cost_total"), ("학생수","student_count")],
+    "C2-3+": [("급식비총액(원)","meal_cost_total"), ("학생수","student_count")],
     "D2-1":  [("학급당학생수","students_per_class"), ("교원1인당학생수","students_per_teacher"), ("1인당급식비(원)","meal_cost_per_student")],
     "D2-2":  [("학급당학생수","students_per_class"), ("교원1인당학생수","students_per_teacher"), ("1인당급식비(원)","meal_cost_per_student")],
     "C5-1":  [("1학년 학생수","grade1_students"), ("2학년 학생수","grade2_students")],
