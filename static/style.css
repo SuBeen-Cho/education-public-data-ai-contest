@@ -1871,3 +1871,81 @@ td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning) !important; }
 .dist-bar.major   { background:var(--sev-major) !important; }
 .dist-bar.minor   { background:var(--sev-minor) !important; }
 .dist-bar.warning { background:var(--sev-warning) !important; }
+
+/* ===== Phase 3 — 전국현황 서울 히어로 + 16개 시·도 강등 (배치 2, 2026-06-01) =====
+   region-card는 JS 주입 마크업 무수정. CSS만 active(서울) 더 크게, disabled(나머지) 작은 칩으로. */
+
+/* 서울 카드 = 풀폭 히어로 — 기존 span 2 → span 4, 패딩·폰트 키움 */
+.region-card.active{
+  grid-column: span 4 !important;
+  padding: 24px 28px;
+  min-height: 160px;
+}
+.region-card.active .region-name{ font-size: 18px; margin-bottom: 6px; }
+.region-card.active .region-districts{ font-size: 12.5px; margin-bottom: 12px; }
+.region-card.active .rstat{ font-size: 14px; }
+.region-card.active .region-top{ font-size: 13.5px; margin-top: 4px; }
+.region-card.active .region-top-label{ font-size: 11px; }
+.region-card.active .region-cta{ font-size: 12.5px; margin-top: 14px; }
+
+/* 나머지 16개 시·도 = 작은 칩 스트립 (회색 입력창 같은 큰 박스 제거) */
+.region-card.disabled{
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  min-height: auto !important;
+  padding: 10px 14px !important;
+  opacity: 0.7 !important;
+  background: var(--gray-50);
+  gap: 8px;
+}
+.region-card.disabled .region-name{
+  font-size: 12.5px;
+  margin-bottom: 0;
+  color: var(--text-sub);
+  font-weight: 700;
+}
+.region-card.disabled .region-coming{
+  background: var(--gray-100);
+  color: var(--text-muted);
+  border-color: var(--border);
+  font-size: 9.5px;
+  padding: 2px 7px;
+  margin-top: 0;
+  letter-spacing: 0.03em;
+}
+
+/* ===== Phase 4 — 자가진단 peer 비교 방향색 제거 (배치 2, 2026-06-01) =====
+   기존 초록(상승)/빨강(하락) 8단계 그라데이션 → 중립 슬레이트 단일 톤.
+   강도(lvl 1~4)는 보더 굵기·텍스트 굵기·크기로 표현. JS 무수정 (peer-pos/peer-neg class 유지).
+   ※ 사용자 지시: "이 도구의 신호는 방향이 아니라 평균 이탈 강도. 초록=좋음 오해 차단."
+   ※ 새 룰을 sev-* 다음에 둬서 cascading 상 line 1759-1776보다 뒤에서 동일 specificity로 덮음. */
+.sr-peer-row.peer-pos-1, .sr-peer-row.peer-neg-1{
+  background: var(--gray-50); border-left: 2px solid var(--gray-200);
+}
+.sr-peer-row.peer-pos-2, .sr-peer-row.peer-neg-2{
+  background: var(--gray-50); border-left: 3px solid var(--text-muted);
+}
+.sr-peer-row.peer-pos-3, .sr-peer-row.peer-neg-3{
+  background: var(--gray-100); border-left: 4px solid var(--text-sub);
+}
+.sr-peer-row.peer-pos-4, .sr-peer-row.peer-neg-4{
+  background: var(--gray-100); border-left: 5px solid var(--navy);
+}
+/* 부호·수치는 JS가 그대로 박음. 색은 중립, 강도는 굵기·크기로 표현. */
+.sr-peer-row.peer-pos-1 .sr-peer-diff,
+.sr-peer-row.peer-neg-1 .sr-peer-diff{
+  color: var(--text-sub); font-weight: 700; font-size: 13.5px;
+}
+.sr-peer-row.peer-pos-2 .sr-peer-diff,
+.sr-peer-row.peer-neg-2 .sr-peer-diff{
+  color: var(--text); font-weight: 800; font-size: 14px;
+}
+.sr-peer-row.peer-pos-3 .sr-peer-diff,
+.sr-peer-row.peer-neg-3 .sr-peer-diff{
+  color: var(--navy); font-weight: 900; font-size: 14.5px;
+}
+.sr-peer-row.peer-pos-4 .sr-peer-diff,
+.sr-peer-row.peer-neg-4 .sr-peer-diff{
+  color: var(--navy); font-weight: 900; font-size: 15.5px; letter-spacing: -0.02em;
+}
