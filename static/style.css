@@ -1846,26 +1846,28 @@ table.list td:last-child{
 
 /* ===== Severity 4-tier 적용 (배치 1, 2026-06-01) =====
    배지·score-cell·분포막대 모두 동일 토큰 사용.
-   기존 grade-priority/normal/ref 룰은 그대로 두고 sev-* 룰을 후방호환으로 병기. */
+   기존 grade-priority/normal/ref 룰은 그대로 두고 sev-* 룰을 후방호환으로 병기.
+   ★ !important 사용 이유: line 1512 idx-pill { color:var(--navy) !important; } 와의 직접 충돌.
+   동일 강도가 아니면 sev-* 가 덮이지 않으므로 sev 4-tier 룰 전체에 !important 부여. */
 
 /* 배지 — tint 배경 + 컬러 텍스트 + 옅은 보더 */
-.grade-badge.sev-critical{ background:var(--sev-critical-bg); color:var(--sev-critical);
-  border:1px solid var(--sev-critical-bd); }
-.grade-badge.sev-major   { background:var(--sev-major-bg);    color:var(--sev-major);
-  border:1px solid var(--sev-major-bd); }
-.grade-badge.sev-minor   { background:var(--sev-minor-bg);    color:var(--sev-minor);
-  border:1px solid var(--sev-minor-bd); }
-.grade-badge.sev-warning { background:var(--sev-warning-bg);  color:var(--sev-warning);
-  border:1px solid var(--sev-warning-bd); }
+.grade-badge.sev-critical{ background:var(--sev-critical-bg) !important; color:var(--sev-critical) !important;
+  border:1px solid var(--sev-critical-bd) !important; }
+.grade-badge.sev-major   { background:var(--sev-major-bg) !important;    color:var(--sev-major) !important;
+  border:1px solid var(--sev-major-bd) !important; }
+.grade-badge.sev-minor   { background:var(--sev-minor-bg) !important;    color:var(--sev-minor) !important;
+  border:1px solid var(--sev-minor-bd) !important; }
+.grade-badge.sev-warning { background:var(--sev-warning-bg) !important;  color:var(--sev-warning) !important;
+  border:1px solid var(--sev-warning-bd) !important; }
 
 /* score-cell — idx-pill 텍스트 색만 4단계로 (행 전체엔 안 칠함) */
-td.score-cell.sev-critical .idx-pill{ color:var(--sev-critical); }
-td.score-cell.sev-major    .idx-pill{ color:var(--sev-major); }
-td.score-cell.sev-minor    .idx-pill{ color:var(--sev-minor); }
-td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning); }
+td.score-cell.sev-critical .idx-pill{ color:var(--sev-critical) !important; }
+td.score-cell.sev-major    .idx-pill{ color:var(--sev-major) !important; }
+td.score-cell.sev-minor    .idx-pill{ color:var(--sev-minor) !important; }
+td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning) !important; }
 
 /* 분포막대 — 길이는 인라인 그대로, 색만 토큰 */
-.dist-bar.critical{ background:var(--sev-critical); }
-.dist-bar.major   { background:var(--sev-major); }
-.dist-bar.minor   { background:var(--sev-minor); }
-.dist-bar.warning { background:var(--sev-warning); }
+.dist-bar.critical{ background:var(--sev-critical) !important; }
+.dist-bar.major   { background:var(--sev-major) !important; }
+.dist-bar.minor   { background:var(--sev-minor) !important; }
+.dist-bar.warning { background:var(--sev-warning) !important; }
