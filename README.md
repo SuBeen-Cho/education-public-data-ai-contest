@@ -104,6 +104,14 @@ EduData Watch는 5단계 파이프라인으로 동작합니다.
 
 **학교별 검토 신호 상세** — 개별 학교의 탐지 항목, 연도별 추이 차트, AI 보조 분석 결과를 한 화면에서 확인할 수 있습니다.
 
+<p align="center">
+  <a href="https://edudata-watch-production.up.railway.app/">
+    <img src="assets/screenshot-chatbot.png" width="750" alt="대화형 분석"/>
+  </a>
+</p>
+
+**대화형 분석** — 자연어로 질문하면 탐지 결과 요약, 수치 변화, 패턴 해석을 제공합니다.
+
 ---
 
 ## 룰셋 구조
