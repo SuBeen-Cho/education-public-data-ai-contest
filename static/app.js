@@ -1238,8 +1238,9 @@ function _yAxisCompact(v) {
 
 function _renderLineChart(host, rule) {
   // host 내부에 canvas + 모드 토글 보장 (M3)
+  // 캔버스 명시 height 컨테이너로 감싸 무한 확장 방지 (bar 모드에서 발생한 이슈)
   const tBtn = (t, lb) => `<button class="md-chart-mode${_mdChartType===t?' active':''}" onclick="setMdChartType('${t}')">${lb}</button>`;
-  host.innerHTML = `<div class="md-chart-toolbar">${tBtn('line','선')}${tBtn('bar','막대')}</div><canvas id="md-evidence-chart"></canvas>`;
+  host.innerHTML = `<div class="md-chart-toolbar">${tBtn('line','선')}${tBtn('bar','막대')}</div><div class="md-chart-canvas-wrap"><canvas id="md-evidence-chart"></canvas></div>`;
   const cvs = document.getElementById('md-evidence-chart');
   const cd = currentSchoolData.chart_data;
   const labels = cd.labels;

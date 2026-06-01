@@ -1873,10 +1873,22 @@ td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning) !important; }
 .dist-bar.warning { background:var(--sev-warning) !important; }
 
 /* ===== M3 — Evidence Chart 선/막대 모드 토글 (2026-06-01) =====
-   학교 상세 룰 차트 위에 작은 모드 버튼 2개. JS 무수정 셀렉터 보존. */
+   학교 상세 룰 차트 위에 작은 모드 버튼 2개. JS 무수정 셀렉터 보존.
+   ★ 캔버스 명시 height — canvas + maintainAspectRatio:false 가 parent height에 의존하므로
+   캔버스 래퍼에 고정 height 부여해 무한 확장 막음. */
 .md-chart-toolbar{
   display: flex; gap: 6px; justify-content: flex-end;
   margin-bottom: 8px;
+}
+.md-chart-canvas-wrap{
+  position: relative;
+  height: 320px;
+  width: 100%;
+}
+.md-chart-canvas-wrap > canvas{
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 320px;
 }
 .md-chart-mode{
   padding: 4px 12px; border: 1px solid var(--border); background: var(--white);
