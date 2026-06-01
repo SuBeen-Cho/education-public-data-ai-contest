@@ -45,12 +45,14 @@ function indexBin(score) {
   return 'warning';
 }
 function indexCls(score) {
-  // 기존 CSS(grade-priority/normal/ref) 재활용 — critical·major는 강조, minor·warning은 약화.
+  // grade-* alias와 sev-* 4단계를 병기. 단일 출처는 indexBin() (점수 임계 재계산 X).
   const bin = indexBin(score);
-  if (bin === 'critical' || bin === 'major') return 'grade-priority';
-  if (bin === 'minor') return 'grade-normal';
-  return 'grade-ref';
+  const sev = `sev-${bin}`;
+  if (bin === 'critical' || bin === 'major') return `grade-priority ${sev}`;
+  if (bin === 'minor') return `grade-normal ${sev}`;
+  return `grade-ref ${sev}`;
 }
+function sevCls(score) { return `sev-${indexBin(score)}`; }
 function fmtIndex(score) {
   if (score == null || isNaN(Number(score))) return '—';
   return Number(score).toFixed(1);
@@ -618,10 +620,10 @@ function removeFilter(f, v) {
 // ===== DISTRIBUTION (우측 패널) — v4 점수체계 4단계 (필터 chip과 라벨 통일) =====
 function renderDistBars(dist) {
   const order = [
-    ['critical', '즉시 검토',      'priority'],
-    ['major',    '우선 검토 대상',  'priority'],
-    ['minor',    '일반 검토',      'normal'],
-    ['warning',  '참고',           'normal'],
+    ['critical', '즉시 검토',      'critical'],
+    ['major',    '우선 검토 대상',  'major'],
+    ['minor',    '일반 검토',      'minor'],
+    ['warning',  '참고',           'warning'],
   ];
   const mx = Math.max(...Object.values(dist), 1);
   document.getElementById('dist-bars').innerHTML = order.map(([k, label, cls]) => {
@@ -673,7 +675,7 @@ function sortLabel(k) {
 }
 
 function rowHtml(s) {
-  const gl = indexLabel(s.score), gc = indexCls(s.score);
+  const gl = indexLabel(s.score), gc = indexCls(s.score), sev = sevCls(s.score);
   const cats = (s.categories_ko || []).slice(0, 5).map(c =>
     `<span class="cat-mini" title="${c.code}">${c.ko}</span>`).join('');
   return `<tr data-code="${s.school_code}">
@@ -682,7 +684,7 @@ function rowHtml(s) {
     <td class="dist-cell">${s.district || ''} · ${s.school_type || ''}</td>
     <td class="cats-cell">${cats}</td>
     <td class="badge-cell"><span class="grade-badge ${gc}">${gl}</span></td>
-    <td class="score-cell"><span class="idx-pill">${fmtIndex(s.score)}</span></td>
+    <td class="score-cell ${sev}"><span class="idx-pill">${fmtIndex(s.score)}</span></td>
   </tr>`;
 }
 

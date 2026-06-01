@@ -20,6 +20,13 @@
   --shadow-md:0 4px 12px rgba(15,42,74,0.08);
   --font:'Pretendard Variable','Pretendard',-apple-system,sans-serif;
   --mono:'JetBrains Mono','D2Coding',monospace;
+
+  /* ===== Severity tokens (4-tier) — 즉시/우선/일반/참고 =====
+     AA 대비 확보 · 앰버↔옐로 인접색 회피 위해 우선=오렌지, 일반=옐로로 분리. */
+  --sev-critical:#B91C1C;--sev-critical-bg:#FEE2E2;--sev-critical-bd:#FCA5A5;
+  --sev-major:   #C2410C;--sev-major-bg:   #FFEDD5;--sev-major-bd:   #FED7AA;
+  --sev-minor:   #A16207;--sev-minor-bg:   #FEF9C3;--sev-minor-bd:   #FDE68A;
+  --sev-warning: #64748B;--sev-warning-bg: #F1F5F9;--sev-warning-bd: #E2E8F0;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{font-size:14px;-webkit-font-smoothing:antialiased}
@@ -1836,3 +1843,29 @@ table.list td:last-child{
 #view-rulelab button{ font-size: 14px !important; padding: 10px 16px !important; }
 #view-rulelab table th{ font-size: 12px !important; padding: 8px 12px !important; }
 #view-rulelab table td{ font-size: 13px !important; padding: 8px 12px !important; }
+
+/* ===== Severity 4-tier 적용 (배치 1, 2026-06-01) =====
+   배지·score-cell·분포막대 모두 동일 토큰 사용.
+   기존 grade-priority/normal/ref 룰은 그대로 두고 sev-* 룰을 후방호환으로 병기. */
+
+/* 배지 — tint 배경 + 컬러 텍스트 + 옅은 보더 */
+.grade-badge.sev-critical{ background:var(--sev-critical-bg); color:var(--sev-critical);
+  border:1px solid var(--sev-critical-bd); }
+.grade-badge.sev-major   { background:var(--sev-major-bg);    color:var(--sev-major);
+  border:1px solid var(--sev-major-bd); }
+.grade-badge.sev-minor   { background:var(--sev-minor-bg);    color:var(--sev-minor);
+  border:1px solid var(--sev-minor-bd); }
+.grade-badge.sev-warning { background:var(--sev-warning-bg);  color:var(--sev-warning);
+  border:1px solid var(--sev-warning-bd); }
+
+/* score-cell — idx-pill 텍스트 색만 4단계로 (행 전체엔 안 칠함) */
+td.score-cell.sev-critical .idx-pill{ color:var(--sev-critical); }
+td.score-cell.sev-major    .idx-pill{ color:var(--sev-major); }
+td.score-cell.sev-minor    .idx-pill{ color:var(--sev-minor); }
+td.score-cell.sev-warning  .idx-pill{ color:var(--sev-warning); }
+
+/* 분포막대 — 길이는 인라인 그대로, 색만 토큰 */
+.dist-bar.critical{ background:var(--sev-critical); }
+.dist-bar.major   { background:var(--sev-major); }
+.dist-bar.minor   { background:var(--sev-minor); }
+.dist-bar.warning { background:var(--sev-warning); }
