@@ -191,6 +191,11 @@ COL_KO = {
     "budget_revenue_yoy": "학교회계세입변동률(%)",
     "budget_expense_yoy": "학교회계세출변동률(%)",
     "graduation_rate_yoy": "진학률변동률(%)",
+    "kess_teacher_regular": "KESS정규교원수",
+    "students_per_teacher_kess": "KESS교원1인당학생수",
+    "teacher_count_no_instructor_yoy": "교원수(강사제외)변동률(%)",
+    "head_teacher_count_yoy": "보직교사수변동률(%)",
+    "rank": "순위",
 }
 
 # 사용자 표에 노출 금지 — prompt 컨텍스트 키이거나 내부 식별자.
@@ -202,6 +207,62 @@ _INTERNAL_COL_BAN = frozenset({
     "school_name_anon",
     "_ord",
 })
+
+
+_COL_UNIT_HINT = {
+    # 컬럼키(영문) → 단위 표시. 6박스/peer 텍스트에서 사용.
+    "student_count": "명", "class_count": "개", "teacher_count": "명",
+    "students_per_class": "명", "students_per_teacher": "명",
+    "bullying_cases": "건", "bullying_victims": "명",
+    "bullying_protection": "건", "bullying_perpetrators": "명",
+    "bullying_discipline": "건",
+    "graduation_rate": "%",
+    "meal_cost_total": "천원", "meal_cost_per_student": "원",
+    "budget_revenue": "원", "budget_expense": "원",
+    "teacher_total_position": "명", "instructor_count": "명",
+    "teacher_count_no_instructor": "명", "head_teacher_count": "명",
+    "grade1_students": "명", "grade2_students": "명", "grade3_students": "명",
+    "kess_student_count": "명", "kess_teacher_total": "명", "kess_class_count": "개",
+    "kess_teacher_regular": "명", "students_per_teacher_kess": "명",
+}
+
+def _fmt_krw(amount: float) -> str:
+    """원 단위 큰 금액을 억/만/원으로 가독화."""
+    try:
+        n = int(round(amount))
+    except Exception:
+        return "—"
+    if abs(n) < 10000:
+        return f"{n:,}원"
+    sign = "-" if n < 0 else ""
+    a = abs(n)
+    oku, rest = divmod(a, 100000000)
+    man, won = divmod(rest, 10000)
+    parts = []
+    if oku: parts.append(f"{oku:,}억")
+    if man: parts.append(f"{man:,}만")
+    if won: parts.append(f"{won:,}")
+    return sign + (" ".join(parts) + "원" if parts else "0원")
+
+def _fmt_val(col_key: str, v) -> str:
+    """6박스/peer 텍스트용 통합 포맷터. 컬럼키 기반 단위 부착·KRW 변환."""
+    try:
+        x = float(v)
+    except Exception:
+        return "—"
+    # 회계 큰 금액은 KRW
+    if col_key in ("budget_revenue", "budget_expense") and abs(x) >= 10000:
+        return _fmt_krw(x)
+    unit = _COL_UNIT_HINT.get(col_key, "")
+    if unit == "%":
+        sign = "+" if x >= 0 else ""
+        return f"{sign}{x:.2f}%"
+    # 정수면 콤마, 소수면 2자리
+    if abs(x - int(x)) < 1e-9:
+        s = f"{int(x):,}"
+    else:
+        s = f"{x:,.2f}"
+    return s + unit if unit else s
 
 
 def _rename_cols_ko(data_list: list) -> list:
@@ -2797,7 +2858,7 @@ def _build_sixbox(rule, school_df, full_df, district):
                 row = school_df[school_df["year"] == y]
                 if not row.empty and pd.notna(row[first_key].iloc[0]):
                     v = float(row[first_key].iloc[0])
-                    vals.append(f"{int(v):,}" if v == int(v) else f"{v:.1f}")
+                    vals.append(_fmt_val(first_key, v))
                 else:
                     vals.append("—")
             label = rule.get("col_labels", [first_key])[0] if rule.get("col_labels") else first_key
@@ -2820,9 +2881,9 @@ def _build_sixbox(rule, school_df, full_df, district):
                     s = float(self_v)
                     diff_pct = ((s - p) / p * 100) if p != 0 else 0
                     sign = "+" if diff_pct >= 0 else ""
-                    peer = f"{district}구 동료군 평균 {p:.1f} 대비 본교 {s:.1f} ({sign}{diff_pct:.1f}%)"
+                    peer = f"{district}구 동료군 평균 {_fmt_val(first_key, p)} 대비 본교 {_fmt_val(first_key, s)} ({sign}{diff_pct:.1f}%)"
                 else:
-                    peer = f"{district}구 동료군 평균 {p:.1f}"
+                    peer = f"{district}구 동료군 평균 {_fmt_val(first_key, p)}"
     if not peer:
         peer = "동료군 비교 데이터가 제한적입니다."
     # 5. 정상 예외 가능성 — 룰 정적 가이드

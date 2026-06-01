@@ -121,6 +121,7 @@ function formatKRW(amountInWon) {
 }
 // 컬럼 + 값 → 단위 붙은 표시 문자열. 변동률은 부호 보존 + 2자리 반올림.
 // 학교회계(세입/세출) 큰 금액은 억/만/원 가독 포맷.
+// ★ 이중 단위 방지: 컬럼명에 (천원)·(원)·(%) 등 단위 괄호 있으면 값엔 단위 후치 X
 function fmtWithUnit(col, v) {
   if (v == null || v === '') return '-';
   if (typeof v !== 'number') {
@@ -129,12 +130,15 @@ function fmtWithUnit(col, v) {
     v = num;
   }
   const c = String(col || '');
-  const u = colUnit(c);
-  // 학교회계 큰 금액 → 억/만/원
+  // 컬럼명에 이미 단위 괄호가 있으면 값엔 단위 안 붙임
+  const colHasUnit = /\((천원|원|%|개|명|건)\)/.test(c);
+  const u = colHasUnit ? '' : colUnit(c);
+  // 학교회계 큰 금액 → 억/만/원 (단, 컬럼명에 (원) 있어도 KRW 가독 포맷이 우선)
   if ((c.includes('학교회계 세입') || c.includes('학교회계 세출')) && Math.abs(v) >= 10000) {
     return formatKRW(v);
   }
-  if (u === '%') {
+  // 변동률(%) — 컬럼명에 (%) 있어도 부호+소수 2자리 + % 한 번은 박음
+  if (colUnit(c) === '%' || /(변동률|%)/.test(c)) {
     const sign = v > 0 ? '+' : '';
     return sign + round2(v).toFixed(2) + '%';
   }
@@ -1249,7 +1253,7 @@ function _renderLineChart(host, rule) {
     options: {
       responsive: true, maintainAspectRatio: false,
       // L1·L2·L3 — valLabel 배지·Y축 숫자·오른쪽 데이터 잘림 방지
-      layout: { padding: { top: 40, right: 24, bottom: 8, left: 12 } },
+      layout: { padding: { top: 40, right: 32, bottom: 8, left: 24 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12, filter: (item) => !item.text.includes('범위 최대') } },
@@ -1269,7 +1273,7 @@ function _renderLineChart(host, rule) {
       },
       scales: {
         y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
-          ticks: { font: { size: 12 }, padding: 6, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
         x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
       },
     },
@@ -1814,7 +1818,7 @@ function _renderDriftTrend(host, rule) {
     options: {
       responsive: true, maintainAspectRatio: false,
       // L1·L2·L3 — valLabel 배지·Y축 숫자·오른쪽 데이터 잘림 방지
-      layout: { padding: { top: 40, right: 24, bottom: 8, left: 12 } },
+      layout: { padding: { top: 40, right: 32, bottom: 8, left: 24 } },
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12 } },
         tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10,
@@ -1831,7 +1835,7 @@ function _renderDriftTrend(host, rule) {
       },
       scales: {
         y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
-          ticks: { font: { size: 12 }, padding: 6, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+          ticks: { font: { size: 12 }, padding: 10, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
         x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
       },
     },
