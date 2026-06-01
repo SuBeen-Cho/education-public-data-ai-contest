@@ -58,6 +58,98 @@ function fmtIndex(score) {
   return Number(score).toFixed(1);
 }
 
+// ===== 단위·포맷 유틸 (배치 L1-L11, 2026-06-01) =====
+// 컬럼명(한국어) → 단위 매핑. 챗봇 응답·학교 상세 표·6박스 모두 공용.
+const COL_UNITS = {
+  '학생수': '명', '학급수': '개', '교원수': '명',
+  '학급당학생수': '명', '학급당학생수(원본)': '명', '교원1인당학생수': '명',
+  '학폭건수': '건', '학폭심의건수': '건', '학폭조치건수': '건',
+  '피해학생수': '명', '보호조치건수': '건', '가해학생수': '명',
+  '진학률': '%', '진학률(%)': '%',
+  '급식비총액': '천원', '급식비총액(천원)': '천원',
+  '1인당급식비': '원', '1인당급식비(원)': '원',
+  '학교회계 세입': '원', '학교회계 세출': '원',
+  '학교회계 세입(원)': '원', '학교회계 세출(원)': '원',
+  '교원총계(직위별)': '명', '강사수': '명', '교원수(강사제외)': '명',
+  '보직교사수': '명',
+  '1학년 학생수': '명', '2학년 학생수': '명', '3학년 학생수': '명',
+  'KESS학생수': '명', 'KESS교원수': '명', 'KESS학급수': '개',
+  '탈의실 수': '개', '샤워실 수': '개', '보건실 수': '개', '급식실 수': '개',
+  '기숙사 수': '개', '시청각실 수': '개', '전산실 수': '개', '도서실 수': '개',
+  '체육관 수': '개', '과학실험실 수': '개', '음악실 수': '개', '미술실 수': '개',
+  '학생수변동률(%)': '%', '학급수변동률(%)': '%',
+  '교원수변동률(%)': '%', '급식비변동률(%)': '%',
+  '교원수(강사제외)변동률(%)': '%',
+  '교원1인당학생수변동률(%)': '%',
+  '학교회계세입변동률(%)': '%', '학교회계세출변동률(%)': '%',
+  '진학률변동률(%)': '%',
+};
+function colUnit(col) {
+  if (col == null) return '';
+  const c = String(col);
+  if (COL_UNITS[c]) return COL_UNITS[c];
+  if (c.endsWith('변동률(%)') || c.endsWith('(%)') || c === '진학률') return '%';
+  if (c === '학기' || c === '연도' || c === '학년도' || c === '학교명' || c === '학교코드' || c === '지역구' || c === '설립유형') return '';
+  if (/(학생수|교원수|강사수|보직|피해|가해|학생)$/.test(c)) return '명';
+  if (/학급수$/.test(c)) return '개';
+  if (/(급식비|세입|세출|회계)/.test(c)) return c.includes('1인당') ? '원' : '천원';
+  if (/건수$/.test(c)) return '건';
+  if (/(수|건)$/.test(c)) return '';
+  return '';
+}
+function round2(v) {
+  if (v == null || isNaN(Number(v))) return v;
+  const n = Number(v);
+  if (Number.isInteger(n)) return n;
+  return Math.round(n * 100) / 100;
+}
+function formatKRW(amountInWon) {
+  if (amountInWon == null || isNaN(Number(amountInWon))) return '-';
+  const n = Math.round(Number(amountInWon));
+  if (Math.abs(n) < 10000) return n.toLocaleString() + '원';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  const oku = Math.floor(abs / 100000000);
+  const restOku = abs % 100000000;
+  const man = Math.floor(restOku / 10000);
+  const won = restOku % 10000;
+  const parts = [];
+  if (oku) parts.push(`${oku.toLocaleString()}억`);
+  if (man) parts.push(`${man.toLocaleString()}만`);
+  if (won) parts.push(`${won.toLocaleString()}`);
+  return sign + (parts.length ? parts.join(' ') + '원' : '0원');
+}
+// 컬럼 + 값 → 단위 붙은 표시 문자열. 변동률은 부호 보존 + 2자리 반올림.
+// 학교회계(세입/세출) 큰 금액은 억/만/원 가독 포맷.
+function fmtWithUnit(col, v) {
+  if (v == null || v === '') return '-';
+  if (typeof v !== 'number') {
+    const num = Number(v);
+    if (isNaN(num)) return String(v);
+    v = num;
+  }
+  const c = String(col || '');
+  const u = colUnit(c);
+  // 학교회계 큰 금액 → 억/만/원
+  if ((c.includes('학교회계 세입') || c.includes('학교회계 세출')) && Math.abs(v) >= 10000) {
+    return formatKRW(v);
+  }
+  if (u === '%') {
+    const sign = v > 0 ? '+' : '';
+    return sign + round2(v).toFixed(2) + '%';
+  }
+  const r = round2(v);
+  const str = Number.isInteger(r) ? r.toLocaleString() : r.toFixed(2);
+  return u ? str + u : str;
+}
+// 구 이름에 "구" 후치 (단, 데이터·필터값은 그대로 — 표시만 보강)
+function districtDisplay(name) {
+  if (!name) return name;
+  const s = String(name).trim();
+  if (s.endsWith('구')) return s;
+  return s + '구';
+}
+
 // ── 활성 필터 상태 ──
 const activeFilters = {
   bin: new Set(),        // 점수 구간: 'critical' / 'major' / 'minor' / 'warning'
@@ -436,8 +528,8 @@ function renderFilterPanel(dash) {
         ${districts.map(d => `
           <span class="fp-chip ${d.active ? '' : 'disabled'}"
                 ${d.active ? `data-filter="district" data-val="${d.name}" onclick="toggleFilterChip(this)"` : ''}
-                title="${d.active ? d.name + ' (' + d.schools + '교 보유)' : d.name + ' (데이터 없음)'}">
-            ${d.name}${d.active ? `<span class="fp-chip-cnt">${d.schools}</span>` : ''}
+                title="${d.active ? districtDisplay(d.name) + ' (' + d.schools + '교 보유)' : districtDisplay(d.name) + ' (데이터 없음)'}">
+            ${districtDisplay(d.name)}${d.active ? `<span class="fp-chip-cnt">${d.schools}</span>` : ''}
           </span>`).join('')}
       </div>
       <div class="district-summary">데이터 보유 ${activeDistCount}개 구 / 확장 예정 ${inactiveDistCount}개 구</div>
@@ -594,7 +686,7 @@ function renderActiveChips() {
     const BIN_LABEL = { critical: '즉시 검토', major: '우선 검토 대상', minor: '일반 검토', warning: '참고' };
     f.bin.forEach(v => chips.push({ f: 'bin', v, label: BIN_LABEL[v] || v }));
   }
-  f.district.forEach(v => chips.push({ f: 'district', v, label: v }));
+  f.district.forEach(v => chips.push({ f: 'district', v, label: districtDisplay(v) }));
   f.type.forEach(v => chips.push({ f: 'type', v, label: v }));
   f.rule.forEach(v => chips.push({ f: 'rule', v, label: v }));
   f.category.forEach(v => chips.push({ f: 'category', v, label: v }));
@@ -681,7 +773,7 @@ function rowHtml(s) {
   return `<tr data-code="${s.school_code}">
     <td class="rank-cell">${s.rank}</td>
     <td class="school-cell">${wrapSchoolName(s.school_name)}</td>
-    <td class="dist-cell">${s.district || ''} · ${s.school_type || ''}</td>
+    <td class="dist-cell">${s.district ? districtDisplay(s.district) : ''} · ${s.school_type || ''}</td>
     <td class="cats-cell">${cats}</td>
     <td class="badge-cell"><span class="grade-badge ${gc}">${gl}</span></td>
     <td class="score-cell ${sev}"><span class="idx-pill">${fmtIndex(s.score)}</span></td>
@@ -905,14 +997,15 @@ function selectRule(ruleId) {
     const detYears = new Set(rule.years.map(Number));
     numTable = `<table class="md-detail-num-table"><thead><tr><th>지표</th>${yearsAll.map(y => `<th${detYears.has(+y) ? ' style="background:var(--cobalt-bg);color:var(--cobalt)"' : ''}>${y}</th>`).join('')}<th>동료군 평균</th></tr></thead><tbody>`;
     rows.forEach(row => {
-      numTable += '<tr><td>' + row['지표'] + '</td>';
+      const indicator = row['지표'];
+      numTable += '<tr><td>' + indicator + '</td>';
       yearsAll.forEach(y => {
         const v = row[y];
-        const fmt = v == null ? '-' : (typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1)) : v);
+        const fmt = fmtWithUnit(indicator, v);
         numTable += `<td${detYears.has(+y) ? ' class="md-detected"' : ''}>${fmt}</td>`;
       });
       const p = row['동료군'];
-      numTable += `<td class="md-peer">${p != null ? (Number.isInteger(p) ? p.toLocaleString() : p.toFixed(1)) : '-'}</td></tr>`;
+      numTable += `<td class="md-peer">${fmtWithUnit(indicator, p)}</td></tr>`;
     });
     numTable += '</tbody></table>';
   }
@@ -1155,12 +1248,30 @@ function _renderLineChart(host, rule) {
     type: 'line', data: { labels, datasets }, plugins: [detectedYearPlugin, valLabelPlugin],
     options: {
       responsive: true, maintainAspectRatio: false,
+      // L1·L2·L3 — valLabel 배지·Y축 숫자·오른쪽 데이터 잘림 방지
+      layout: { padding: { top: 40, right: 24, bottom: 8, left: 12 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12, filter: (item) => !item.text.includes('범위 최대') } },
-        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10, callbacks: { title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}` } },
+        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10,
+          callbacks: {
+            title: (items) => `${items[0].label}년${detYears.has(+items[0].label) ? ' · 검토 신호 발생' : ''}`,
+            // L5/L11 — 툴팁에도 단위 부착 (dataset.label에서 컬럼명 추출)
+            label: (ctx) => {
+              const ds = ctx.dataset || {};
+              const baseLabel = ds.label || '';
+              // "급식비총액(천원) (본교)" / "급식비총액(천원) 동료군 평균" → col 추출
+              const col = baseLabel.replace(/\s*\((본교|peer|동료군.*)\)?\s*$/, '').replace(/\s+동료군.*$/, '').trim();
+              const v = ctx.parsed.y;
+              return `${baseLabel}: ${fmtWithUnit(col, v)}`;
+            }
+          } },
       },
-      scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 13 } } }, x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' } } } },
+      scales: {
+        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: { font: { size: 12 }, padding: 6, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+        x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
+      },
     },
   });
 }
@@ -1535,15 +1646,16 @@ function renderDataTable(table, targetId) {
   const yrs = Object.keys(table[0]).filter(k => /^\d{4}$/.test(k)).sort();
   let html = '<table class="data-table"><thead><tr><th>지표</th>' + yrs.map(y => `<th>${y}</th>`).join('') + '<th>동료군</th></tr></thead><tbody>';
   table.forEach(row => {
-    html += '<tr><td>' + row['지표'] + '</td>';
+    const indicator = row['지표'];
+    html += '<tr><td>' + indicator + '</td>';
     yrs.forEach(y => {
       const c = row[y]; if (!c || c.value == null) { html += '<td>-</td>'; return; }
       const cls = c.status === 'detected' ? 'cell-detected' : '';
-      const v = typeof c.value === 'number' ? (Number.isInteger(c.value) ? c.value.toLocaleString() : c.value.toFixed(1)) : c.value;
+      const v = fmtWithUnit(indicator, c.value);
       html += `<td class="${cls}">${v}</td>`;
     });
     const p = row['동료군평균'];
-    html += `<td class="cell-peer">${p != null ? (Number.isInteger(p) ? p.toLocaleString() : p.toFixed(1)) : '-'}</td></tr>`;
+    html += `<td class="cell-peer">${fmtWithUnit(indicator, p)}</td></tr>`;
   });
   html += '</tbody></table>';
   el.innerHTML = html;
@@ -1693,20 +1805,34 @@ function _renderDriftTrend(host, rule) {
     data: {
       labels,
       datasets: [
-        // 본교 라인: 코발트(파랑), 굵게 + 채움. 추세선: 강조색(빨강), 점선, 굵기 ↑.
+        // 본교 라인: 코발트(파랑), 굵게 + 채움. 추세선: 강조색(빨강), 점선, 굵기·점선 간격↑.
         { label: `${colLabel} (본교)`, data: vals, borderColor: '#1D4ED8', backgroundColor: 'rgba(29,78,216,0.16)', borderWidth: 4.5, pointRadius: 8, pointHoverRadius: 11, pointBackgroundColor: '#1D4ED8', pointBorderColor: '#fff', pointBorderWidth: 2.5, tension: 0, fill: true, order: 1 },
-        { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [8, 5], borderWidth: 2.5, pointRadius: 0, fill: false, order: 2 },
+        // L4 — 추세선이 안 보이던 문제: borderWidth 2.5 → 3.5, dash [10,6]로 간격 명확화
+        { label: '단조 추세선', data: trendLine, borderColor: '#DC2626', borderDash: [10, 6], borderWidth: 3.5, pointRadius: 0, fill: false, order: 2 },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      // L1·L2·L3 — valLabel 배지·Y축 숫자·오른쪽 데이터 잘림 방지
+      layout: { padding: { top: 40, right: 24, bottom: 8, left: 12 } },
       plugins: {
         legend: { position: 'bottom', labels: { font: { size: 12, family: 'Pretendard Variable', weight: '600' }, usePointStyle: true, padding: 12 } },
-        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10, callbacks: { title: items => `${items[0].label}년` } },
+        tooltip: { titleFont: { size: 13, weight: '700' }, bodyFont: { size: 12.5 }, padding: 10,
+          callbacks: {
+            title: items => `${items[0].label}년`,
+            label: (ctx) => {
+              const ds = ctx.dataset || {};
+              const baseLabel = ds.label || '';
+              const col = baseLabel.replace(/\s*\((본교|peer|동료군.*)\)?\s*$/, '').trim();
+              const v = ctx.parsed.y;
+              return `${baseLabel}: ${fmtWithUnit(col, v)}`;
+            }
+          } },
       },
       scales: {
-        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 13 } } },
-        x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' } } },
+        y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.04)' },
+          ticks: { font: { size: 12 }, padding: 6, callback: function(v){ return Number.isInteger(v) ? v.toLocaleString() : Number(v).toFixed(1); } } },
+        x: { grid: { display: false }, ticks: { font: { size: 13, weight: '700' }, padding: 4 } },
       },
     },
   });
@@ -1796,7 +1922,14 @@ function _chatMiniCard(row) {
   const idx = idxKey ? row[idxKey] : '';
   const skipKeys = new Set([nameKey, idxKey].filter(Boolean));
   const rows = Object.entries(row).filter(([k]) => !skipKeys.has(k))
-    .map(([k, v]) => `<div class="cmc-row"><span class="cmc-row-l">${_chatHeaderShort(k)}</span><span class="cmc-row-v">${v == null ? '-' : v}</span></div>`)
+    .map(([k, v]) => {
+      let disp;
+      if (v == null) disp = '-';
+      else if (k === '지역구' && typeof v === 'string') disp = districtDisplay(v);
+      else if (typeof v === 'number') disp = fmtWithUnit(k, v);
+      else disp = String(v);
+      return `<div class="cmc-row"><span class="cmc-row-l">${_chatHeaderShort(k)}</span><span class="cmc-row-v">${disp}</span></div>`;
+    })
     .join('');
   return `<div class="chat-mini-card">
     <div class="cmc-head"><span class="cmc-name">${name || '결과'}</span>${idx !== '' ? `<span class="cmc-idx">지수 ${idx}</span>` : ''}</div>
@@ -1840,9 +1973,11 @@ async function sendChat(text) {
               if (chg >= 10) cls = ' class="cat-detected"';
             }
             prev[c] = v;
-            v = Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1);
+            v = fmtWithUnit(c, v);
+          } else if (c === '지역구' && v) {
+            v = districtDisplay(v);
           }
-          return `<td${cls}>${v == null ? '-' : v}</td>`;
+          return `<td${cls}>${v == null || v === '' ? '-' : v}</td>`;
         }).join('') + '</tr>';
       });
       tableHtml += '</tbody></table></div>';
